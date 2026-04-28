@@ -1,0 +1,38 @@
+{
+  "name": "app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "run-p type-check \"build-only {@}\" --",
+    "preview": "vite preview",
+    "build-only": "vite build",
+    "type-check": "vue-tsc --build"
+  },
+  "dependencies": {
+    "gsap": "catalog:ui",
+    "lucide-vue-next": "catalog:vue",
+    "pinia": "catalog:vue",
+    "vue": "catalog:",
+    "vue-router": "catalog:vue"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.4",
+    "@tsconfig/node24": "^24.0.4",
+    "@types/node": "catalog:types",
+    "@vitejs/plugin-vue": "catalog:dev",
+    "@vue/tsconfig": "^0.9.1",
+    "autoprefixer": "catalog:build",
+    "npm-run-all2": "^8.0.4",
+    "postcss": "catalog:build",
+    "tailwindcss": "^4.2.4",
+    "typescript": "catalog:",
+    "vite": "catalog:build",
+    "vite-plugin-vue-devtools": "^8.1.1",
+    "vue-tsc": "^3.2.6"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}
