@@ -3,11 +3,11 @@
  * 将 VNode 树递归渲染为 React DOM
  */
 
-import { type ReactNode, Children } from 'react';
+import { type ReactNode, memo, useMemo, useSyncExternalStore } from 'react';
 import type { A2UIStore, VNode } from '@a2ui/core';
 import { TreeBuilder } from '@a2ui/core';
 import { useCatalog } from './hooks/useCatalog.js';
-import { useResolvedValue } from './hooks/useA2UI.js';
+import { A2UIElementErrorBoundary } from './components/A2UIElementErrorBoundary.js';
 
 export interface VNodeRendererProps {
   store: A2UIStore;
@@ -17,6 +17,10 @@ export interface VNodeRendererProps {
   rootId?: string;
 }
 
+/**
+ * A2UI VNode 树渲染器
+ * 从 store 构建 VNode 树并递归渲染为 React 组件
+ */
 export function VNodeRenderer({
   store,
   surfaceId,
@@ -24,13 +28,18 @@ export function VNodeRenderer({
   vNode,
   rootId,
 }: VNodeRendererProps): ReactNode {
-  // 如果没有传入 vNode，从 store 构建
+  const version = useSyncExternalStore(
+    (callback) => store.subscribe(callback),
+    () => store.getSnapshot(),
+    () => store.getSnapshot()
+  );
+
   const node = useMemo(() => {
     if (vNode) return vNode;
     if (!rootId) return null;
     const components = store.getComponents(surfaceId);
     return TreeBuilder.build(components, rootId, { surfaceId });
-  }, [vNode, rootId, store, surfaceId]);
+  }, [vNode, rootId, store, surfaceId, version]);
 
   if (!node) return null;
 
@@ -51,7 +60,16 @@ interface VNodeNodeProps {
   node: VNode;
 }
 
-function VNodeNode({ store, surfaceId, catalogId, node }: VNodeNodeProps): ReactNode {
+/**
+ * 单个 VNode 渲染（memoized）
+ * 避免无关状态变化时重复渲染
+ */
+const VNodeNode = memo(function VNodeNode({
+  store,
+  surfaceId,
+  catalogId,
+  node,
+}: VNodeNodeProps): ReactNode {
   const Component = useCatalog(catalogId, node.type);
 
   if (!Component) {
@@ -74,27 +92,36 @@ function VNodeNode({ store, surfaceId, catalogId, node }: VNodeNodeProps): React
   ));
 
   return (
-    <Component
-      {...resolvedProps}
-      _store={store}
-      _surfaceId={surfaceId}
-      _componentId={node.id}
+    <A2UIElementErrorBoundary
+      componentType={node.type}
+      componentId={node.id}
     >
-      {children}
-    </Component>
+      <Component
+        {...resolvedProps}
+        _store={store}
+        _surfaceId={surfaceId}
+        _componentId={node.id}
+      >
+        {children}
+      </Component>
+    </A2UIElementErrorBoundary>
   );
-}
-
-import { useMemo } from 'react';
+});
 
 /**
  * 解析 props 对象中的所有 BoundValue
+ * 订阅 store 版本号，确保数据模型更新时重新解析
  */
 function useResolvedProps(
   store: A2UIStore,
   surfaceId: string,
   props: Record<string, any>
 ): Record<string, any> {
+  const version = useSyncExternalStore(
+    (callback) => store.subscribe(callback),
+    () => store.getSnapshot(),
+    () => store.getSnapshot()
+  );
   const dataStore = store.getDataStore();
 
   return useMemo(() => {
@@ -102,7 +129,12 @@ function useResolvedProps(
     for (const [key, value] of Object.entries(props)) {
       if (value && typeof value === 'object') {
         // 检测是否是 BoundValue（有 path 或 literal*）
-        if ('path' in value || 'literalString' in value || 'literalNumber' in value || 'literalBoolean' in value) {
+        if (
+          'path' in value ||
+          'literalString' in value ||
+          'literalNumber' in value ||
+          'literalBoolean' in value
+        ) {
           result[key] = dataStore.resolveBoundValue(surfaceId, value as any);
           continue;
         }
@@ -115,5 +147,5 @@ function useResolvedProps(
       result[key] = value;
     }
     return result;
-  }, [props, dataStore, surfaceId]);
+  }, [props, dataStore, surfaceId, version]);
 }

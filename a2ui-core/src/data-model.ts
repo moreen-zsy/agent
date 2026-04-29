@@ -19,11 +19,11 @@ export class DataModelStore {
   }
 
   /**
-   * 使用 dataModelUpdate 更新数据模型
+   * 使用 dataModelUpdate 更新数据模型（不可变更新）
    * @param path 数据模型内的路径，省略或 "/" 则替换整个根
    */
   update(surfaceId: string, path: string | undefined, contents: DataEntry[]): void {
-    const model = this.getModel(surfaceId);
+    let model = this.getModel(surfaceId);
     const data = this.entriesToObject(contents);
 
     if (!path || path === '/' || path === '') {
@@ -33,11 +33,13 @@ export class DataModelStore {
 
     const target = this.getValueByPath(model, path);
     if (target && typeof target === 'object' && !Array.isArray(target)) {
-      // 深合并
-      Object.assign(target, data);
+      // 不可变浅合并：只 clone 路径上的对象
+      const merged = { ...target, ...data };
+      model = this.immutableSetByPath(model, path, merged);
     } else {
-      this.setValueByPath(model, path, data);
+      model = this.immutableSetByPath(model, path, data);
     }
+    this.models.set(surfaceId, model);
   }
 
   /**
@@ -77,6 +79,35 @@ export class DataModelStore {
       current = current[part];
     }
     return current;
+  }
+
+  /**
+   * 不可变设置路径上的值，只 clone 路径上的对象，未修改分支保持原引用
+   */
+  private immutableSetByPath(obj: DataModel, path: string, value: any): DataModel {
+    const segments = path.split('/').filter(p => p !== '');
+    if (segments.length === 0) return value;
+
+    const result = { ...obj };
+    let current: Record<string, any> = result;
+
+    for (let i = 0; i < segments.length - 1; i++) {
+      const seg = segments[i]!;
+      const child = current[seg];
+      if (Array.isArray(child)) {
+        current[seg] = [...child];
+      } else if (child !== null && typeof child === 'object') {
+        current[seg] = { ...child };
+      } else {
+        const nextSeg = segments[i + 1];
+        current[seg] = nextSeg !== undefined && /^\d+$/.test(nextSeg) ? [] : {};
+      }
+      current = current[seg];
+    }
+
+    const lastSeg = segments[segments.length - 1]!;
+    current[lastSeg] = value;
+    return result;
   }
 
   private setValueByPath(obj: any, path: string, value: any): void {
