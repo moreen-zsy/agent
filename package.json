@@ -7,7 +7,8 @@
     "a2ui-core",
     "a2ui-render/*",
     "a2ui-server",
-    "apps/gusto/*"
+    "apps/gusto/*",
+    "apps/playground"
   ],
   "scripts": {
     "dev:core": "bun --filter @a2ui/core dev",
