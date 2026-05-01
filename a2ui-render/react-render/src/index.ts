@@ -1,7 +1,6 @@
 /**
  * @a2ui/react
- * A2UI React 渲染器 - 将 A2UI 协议渲染为 React 组件
- * 严格对齐 A2UI v0.8 标准协议
+ * A2UI React 渲染器 - 将 A2UI v0.9 协议渲染为 React 组件
  */
 
 // 从 core 重新导出类型和工具

@@ -1,10 +1,11 @@
 /**
- * VNode 递归渲染器
+ * VNode 递归渲染器 (v0.9)
  * 将 VNode 树递归渲染为 React DOM
+ * DynamicValue 解析：字面量透传、{path} 查数据模型、{call} 透传给组件
  */
 
 import { type ReactNode, memo, useMemo, useSyncExternalStore } from 'react';
-import type { A2UIStore, VNode } from '@a2ui/core';
+import type { A2UIStore, VNode, DynamicValue } from '@a2ui/core';
 import { TreeBuilder } from '@a2ui/core';
 import { useCatalog } from './hooks/useCatalog.js';
 import { A2UIElementErrorBoundary } from './components/A2UIElementErrorBoundary.js';
@@ -77,19 +78,53 @@ const VNodeNode = memo(function VNodeNode({
     return null;
   }
 
-  // 解析 props 中的 BoundValue
+  // 解析 props 中的 DynamicValue
   const resolvedProps = useResolvedProps(store, surfaceId, node.props);
 
-  // 递归渲染子组件
-  const children = node.children.map((child) => (
-    <VNodeNode
-      key={child.id}
-      store={store}
-      surfaceId={surfaceId}
-      catalogId={catalogId}
-      node={child}
-    />
-  ));
+  // 递归渲染子组件（支持 template 动态列表）
+  const children = useMemo(() => {
+    const staticChildren = node.children.map((child) => (
+      <VNodeNode
+        key={child.id}
+        store={store}
+        surfaceId={surfaceId}
+        catalogId={catalogId}
+        node={child}
+      />
+    ));
+
+    // 动态 template 列表（v0.9: children 为 { componentId, path }）
+    const childList = node.props.children;
+    if (childList && typeof childList === 'object' && !Array.isArray(childList) && childList.componentId && childList.path) {
+      const data = store.getDataStore().getValue(surfaceId, childList.path);
+      const components = store.getComponents(surfaceId);
+      const templateDef = components.get(childList.componentId);
+
+      if (Array.isArray(data) && templateDef) {
+        const dynamicChildren = data.map((_: any, index: number) => {
+          const id = `${childList.componentId}-${index}`;
+          const itemNode = TreeBuilder.build(
+            new Map([[id, { ...templateDef, id }], ...components]),
+            id,
+            { surfaceId }
+          );
+          if (!itemNode) return null;
+          return (
+            <VNodeNode
+              key={id}
+              store={store}
+              surfaceId={surfaceId}
+              catalogId={catalogId}
+              node={itemNode}
+            />
+          );
+        });
+        return [...staticChildren, ...dynamicChildren];
+      }
+    }
+
+    return staticChildren;
+  }, [node, store, surfaceId, catalogId]);
 
   return (
     <A2UIElementErrorBoundary
@@ -98,6 +133,7 @@ const VNodeNode = memo(function VNodeNode({
     >
       <Component
         {...resolvedProps}
+        _rawProps={node.props}
         _store={store}
         _surfaceId={surfaceId}
         _componentId={node.id}
@@ -109,7 +145,10 @@ const VNodeNode = memo(function VNodeNode({
 });
 
 /**
- * 解析 props 对象中的所有 BoundValue
+ * 解析 props 对象中的所有 DynamicValue
+ * - 字面量（string/number/boolean/array）：直接透传
+ * - {path}：从数据模型中查找
+ * - {call, args, returnType}：FunctionCall，透传给组件自行处理
  * 订阅 store 版本号，确保数据模型更新时重新解析
  */
 function useResolvedProps(
@@ -127,23 +166,27 @@ function useResolvedProps(
   return useMemo(() => {
     const result: Record<string, any> = {};
     for (const [key, value] of Object.entries(props)) {
-      if (value && typeof value === 'object') {
-        // 检测是否是 BoundValue（有 path 或 literal*）
-        if (
-          'path' in value ||
-          'literalString' in value ||
-          'literalNumber' in value ||
-          'literalBoolean' in value
-        ) {
-          result[key] = dataStore.resolveBoundValue(surfaceId, value as any);
+      // 跳过特殊键，由组件自行处理
+      if (key === 'children' || key === 'action' || key === 'tabs' || key === 'checks') {
+        result[key] = value;
+        continue;
+      }
+
+      // 检测是否是 DynamicValue 对象
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        // FunctionCall: { call, ... }
+        if ('call' in value) {
+          result[key] = value; // 透传给组件
           continue;
         }
-        // children: explicitList / template 不需要解析
-        if (key === 'children' || key === 'action') {
-          result[key] = value;
+        // DataBinding: { path }
+        if ('path' in value) {
+          result[key] = dataStore.getValue(surfaceId, value.path);
           continue;
         }
       }
+
+      // 字面量直接透传
       result[key] = value;
     }
     return result;

@@ -1,5 +1,5 @@
 /**
- * A2UI JSONL 流式解析器
+ * A2UI JSONL 流式解析器 (v0.9)
  * 逐行解析 SSE/JSONL 流，支持不完整行缓冲
  */
 
@@ -10,9 +10,9 @@ import type {
 } from './types.js';
 
 const VALID_KEYS: ParseResultType[] = [
-  'surfaceUpdate',
-  'dataModelUpdate',
-  'beginRendering',
+  'createSurface',
+  'updateComponents',
+  'updateDataModel',
   'deleteSurface',
 ];
 
@@ -35,9 +35,14 @@ export class A2UIParser {
       return { type: 'error', error: `Invalid JSON: ${(e as Error).message}` };
     }
 
-    const keys = Object.keys(parsed);
+    // v0.9 消息包含 version 字段
+    if (parsed.version !== 'v0.9') {
+      return { type: 'error', error: `Expected version "v0.9", got: ${parsed.version}` };
+    }
+
+    const keys = Object.keys(parsed).filter(k => k !== 'version');
     if (keys.length !== 1) {
-      return { type: 'error', error: `Message must contain exactly one key, got: ${keys.join(', ')}` };
+      return { type: 'error', error: `Message must contain exactly one key (besides version), got: ${keys.join(', ')}` };
     }
 
     const key = keys[0];

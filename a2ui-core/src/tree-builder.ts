@@ -1,10 +1,10 @@
 /**
- * A2UI 树构建器
+ * A2UI 树构建器 (v0.9)
  * 将扁平组件列表构建为 VNode 树（从 root 递归展开）
+ * v0.9 格式：组件类型在 component 字段，children 可以是 string[] 或 template 对象
  */
 
 import type { ComponentDef, VNode } from './types.js';
-import { getComponentType, getComponentProps } from './types.js';
 
 const DEFAULT_MAX_DEPTH = 100;
 
@@ -23,6 +23,16 @@ export class TreeBuilder {
       maxDepth: options.maxDepth ?? DEFAULT_MAX_DEPTH,
       surfaceId: options.surfaceId ?? 'default',
     };
+  }
+
+  /**
+   * 查找根组件 ID（id === 'root'）
+   */
+  findRootId(): string | undefined {
+    for (const [id] of this.components) {
+      if (id === 'root') return id;
+    }
+    return undefined;
   }
 
   /**
@@ -52,8 +62,11 @@ export class TreeBuilder {
       return null;
     }
 
-    const type = getComponentType(def);
-    const props = getComponentProps(def) ?? {};
+    const type = def.component;
+    const props = { ...def };
+    // 移除内部字段
+    delete (props as any).id;
+    delete (props as any).component;
 
     if (!type) {
       console.warn(`[A2UI] Component type missing for: ${id}`);
@@ -65,7 +78,7 @@ export class TreeBuilder {
     const node: VNode = {
       id,
       type,
-      props: { ...props },
+      props,
       children: [],
       surfaceId: this.options.surfaceId,
       isMounted: false,
@@ -90,9 +103,13 @@ export class TreeBuilder {
   private extractChildIds(props: Record<string, any>): string[] {
     const ids: string[] = [];
 
-    // explicitList: { children: { explicitList: ['child1', 'child2'] } }
-    if (props.children?.explicitList) {
-      ids.push(...props.children.explicitList);
+    // children: string[] (explicit list)
+    if (props.children && Array.isArray(props.children)) {
+      for (const child of props.children) {
+        if (typeof child === 'string') {
+          ids.push(child);
+        }
+      }
     }
 
     // Card 使用 child（单个子组件）
@@ -100,21 +117,21 @@ export class TreeBuilder {
       ids.push(props.child);
     }
 
-    // Tabs: { tabItems: [{ title: ..., child: 'id' }] }
-    if (props.tabItems && Array.isArray(props.tabItems)) {
-      for (const item of props.tabItems) {
+    // Tabs: { tabs: [{ title: ..., child: 'id' }] }
+    if (props.tabs && Array.isArray(props.tabs)) {
+      for (const item of props.tabs) {
         if (item.child && typeof item.child === 'string') {
           ids.push(item.child);
         }
       }
     }
 
-    // Modal: { entryPointChild: 'id', contentChild: 'id' }
-    if (props.entryPointChild && typeof props.entryPointChild === 'string') {
-      ids.push(props.entryPointChild);
+    // Modal: { trigger: 'id', content: 'id' }
+    if (props.trigger && typeof props.trigger === 'string') {
+      ids.push(props.trigger);
     }
-    if (props.contentChild && typeof props.contentChild === 'string') {
-      ids.push(props.contentChild);
+    if (props.content && typeof props.content === 'string') {
+      ids.push(props.content);
     }
 
     return ids;

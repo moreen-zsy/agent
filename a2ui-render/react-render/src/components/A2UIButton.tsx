@@ -1,41 +1,35 @@
 /**
- * A2UI Button 组件
+ * A2UI Button 组件 (v0.9)
+ * variant: default | primary | borderless
+ * action.event.context: Record<string, DynamicValue>
  */
 
 import { type ReactNode } from 'react';
 import type { A2UIComponentProps } from './types.js';
 
 export interface ButtonProps extends A2UIComponentProps {
-  child?: string; // 子组件 ID（由 TreeBuilder 处理，这里直接使用 children）
-  primary?: boolean;
+  child?: string;
+  variant?: 'default' | 'primary' | 'borderless';
   action?: {
-    event?: { name: string; context?: any[] };
+    event?: { name: string; context?: Record<string, any> };
     functionCall?: { call: string; args?: Record<string, any> };
   };
 }
 
-export function A2UIButton({ primary, action, children, _store, _surfaceId, _componentId }: ButtonProps) {
+export function A2UIButton({ variant = 'default', action, children, _store, _surfaceId, _componentId }: ButtonProps) {
   const handleClick = () => {
     if (!_store || !_surfaceId || !_componentId) return;
 
     if (action?.functionCall) {
-      // 本地函数调用（由应用层处理）
       console.log('[A2UI] functionCall:', action.functionCall);
     }
 
     if (action?.event) {
-      // 构造 userAction 并发送
-      const context: Record<string, any> = {};
-      if (action.event.context) {
-        for (const item of action.event.context) {
-          if (item.key && item.value) {
-            context[item.key] = _store.getDataStore().resolveBoundValue(_surfaceId, item.value);
-          }
-        }
-      }
+      // v0.9 context 已经是普通对象，值可能已解析
+      const context = action.event.context ?? {};
 
       _store.sendUserAction({
-        userAction: {
+        action: {
           name: action.event.name,
           surfaceId: _surfaceId,
           sourceComponentId: _componentId,
@@ -47,9 +41,12 @@ export function A2UIButton({ primary, action, children, _store, _surfaceId, _com
   };
 
   const baseClass = 'px-4 py-2 rounded font-medium transition-colors';
-  const variantClass = primary
-    ? 'bg-blue-600 text-white hover:bg-blue-700'
-    : 'bg-gray-200 text-gray-800 hover:bg-gray-300';
+  let variantClass = 'bg-gray-200 text-gray-800 hover:bg-gray-300';
+  if (variant === 'primary') {
+    variantClass = 'bg-blue-600 text-white hover:bg-blue-700';
+  } else if (variant === 'borderless') {
+    variantClass = 'bg-transparent text-gray-700 hover:bg-gray-100';
+  }
 
   return (
     <button className={`${baseClass} ${variantClass}`} onClick={handleClick}>

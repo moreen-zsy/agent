@@ -1,5 +1,5 @@
 /**
- * A2UI 标准 Catalog 组件映射
+ * A2UI 标准 Catalog 组件映射 (v0.9)
  * 将组件类型名映射到 React 组件
  */
 
@@ -17,15 +17,18 @@ import { A2UIIcon } from '../components/A2UIIcon.js';
 import { A2UIVideo } from '../components/A2UIVideo.js';
 import { A2UIAudioPlayer } from '../components/A2UIAudioPlayer.js';
 import { A2UICheckBox } from '../components/A2UICheckBox.js';
-import { A2UIMultipleChoice } from '../components/A2UIMultipleChoice.js';
+import { A2UIChoicePicker } from '../components/A2UIChoicePicker.js';
 import { A2UISlider } from '../components/A2UISlider.js';
 import { A2UITabs } from '../components/A2UITabs.js';
 import { A2UIDivider } from '../components/A2UIDivider.js';
+import { A2UISpacer } from '../components/A2UISpacer.js';
+import { A2UIModal } from '../components/A2UIModal.js';
+import { A2UISwitch } from '../components/A2UISwitch.js';
+import { A2UIChip } from '../components/A2UIChip.js';
 
 export type A2UIComponent = ComponentType<any>;
 
-export const STANDARD_CATALOG_ID =
-  'https://a2ui.org/specification/v0_8/standard_catalog_definition.json';
+export const STANDARD_CATALOG_ID = 'https://a2ui.org/specification/v0_9/basic_catalog.json';
 
 /**
  * 标准 Catalog 组件注册表
@@ -44,10 +47,14 @@ export const standardCatalog: Map<string, A2UIComponent> = new Map(
     ['Video', A2UIVideo],
     ['AudioPlayer', A2UIAudioPlayer],
     ['CheckBox', A2UICheckBox],
-    ['MultipleChoice', A2UIMultipleChoice],
+    ['ChoicePicker', A2UIChoicePicker],
     ['Slider', A2UISlider],
     ['Tabs', A2UITabs],
     ['Divider', A2UIDivider],
+    ['Spacer', A2UISpacer],
+    ['Modal', A2UIModal],
+    ['Switch', A2UISwitch],
+    ['Chip', A2UIChip],
   ] as [string, A2UIComponent][]
 );
 

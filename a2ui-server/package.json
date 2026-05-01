@@ -5,13 +5,21 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@a2ui/core": "workspace:*",
-    "elysia": "^1.2.0",
-    "ai": "^4.0.0",
-    "zod": "^3.25.0"
+    "@a2ui/agent": "workspace:*",
+    "@ag-ui/client": "catalog:agui",
+    "@ag-ui/encoder": "catalog:agui",
+    "@elysiajs/cors": "catalog:server",
+    "@elysiajs/swagger": "catalog:server",
+    "elysia": "catalog:server",
+    "zod": "catalog:",
+    "drizzle-orm": "catalog:server",
+    "postgres": "catalog:server",
+    "jose": "catalog:"
   },
   "devDependencies": {
     "typescript": "catalog:",

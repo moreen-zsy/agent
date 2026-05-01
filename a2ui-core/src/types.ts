@@ -1,161 +1,152 @@
 /**
- * A2UI Core - 核心类型定义 (v0.8)
- * 严格对齐 specification/v0_8/ 标准协议
+ * A2UI Core - 核心类型定义 (v0.9)
+ * 严格对齐 specification/v0_9/ 标准协议
  */
 
 // ============================================================
-// 基础类型
+// DynamicValue - v0.9 统一值类型
 // ============================================================
 
-/** BoundValue: 组件属性值，支持字面量、数据绑定或初始化简写 */
-export type BoundValue =
-  | { literalString: string }
-  | { literalNumber: number }
-  | { literalBoolean: boolean }
-  | { path: string }
-  | { literalString: string; path: string }
-  | { literalNumber: number; path: string }
-  | { literalBoolean: boolean; path: string };
-
-/** 提取 BoundValue 中的字面量值 */
-export type LiteralValue =
-  | { literalString: string }
-  | { literalNumber: number }
-  | { literalBoolean: boolean };
-
-// ============================================================
-// 容器子元素定义
-// ============================================================
-
-/** explicitList: 静态子元素 ID 列表 */
-export interface ExplicitListChildren {
-  explicitList: string[];
+/** 数据绑定：引用数据模型中的值 */
+export interface DataBinding {
+  path: string;
 }
 
-/** template: 动态列表模板，从数据绑定生成子元素 */
-export interface TemplateChildren {
-  template: {
-    dataBinding: string;
-    componentId: string;
-  };
+/** 函数调用：在客户端执行本地函数 */
+export interface FunctionCall {
+  call: string;
+  args?: Record<string, any>;
+  returnType?: 'string' | 'number' | 'boolean' | 'array' | 'object' | 'any' | 'void';
 }
 
-/** 容器子元素定义，必须且只能包含 explicitList 或 template */
-export type ChildrenDef = ExplicitListChildren | TemplateChildren;
+/** DynamicValue: 可以是字面量、数据绑定或函数调用 */
+export type DynamicValue<T = any> = T | DataBinding | FunctionCall;
+
+/** DynamicString: 字符串类型的 DynamicValue */
+export type DynamicString = string | DataBinding | (FunctionCall & { returnType?: 'string' });
+
+/** DynamicNumber: 数字类型的 DynamicValue */
+export type DynamicNumber = number | DataBinding | (FunctionCall & { returnType?: 'number' });
+
+/** DynamicBoolean: 布尔类型的 DynamicValue */
+export type DynamicBoolean = boolean | DataBinding | (FunctionCall & { returnType?: 'boolean' });
+
+/** DynamicStringList: 字符串数组类型的 DynamicValue */
+export type DynamicStringList = string[] | DataBinding | (FunctionCall & { returnType?: 'array' });
+
+// ============================================================
+// ChildList - v0.9 子元素定义
+// ============================================================
+
+/** 显式子元素列表：静态 ID 数组 */
+export type ExplicitChildList = string[];
+
+/** 模板子元素：从数据模型动态生成 */
+export interface TemplateChildList {
+  componentId: string;
+  path: string;
+}
+
+/** ChildList: 显式列表或模板 */
+export type ChildList = ExplicitChildList | TemplateChildList;
 
 // ============================================================
 // Action 定义
 // ============================================================
 
-/** action.context 中的单个条目 */
-export interface ActionContextItem {
-  key: string;
-  value: BoundValue;
-}
-
-/** event: 派遣给代理的事件 */
+/** event: 派遣给服务器的事件 */
 export interface EventAction {
   event: {
     name: string;
-    context?: ActionContextItem[];
+    context?: Record<string, DynamicValue>;
   };
 }
 
-/** functionCall: 在渲染器上执行的本地函数 */
+/** functionCall: 在客户端执行的本地函数 */
 export interface FunctionCallAction {
-  functionCall: {
-    call: string;
-    args?: Record<string, any>;
-  };
+  functionCall: FunctionCall;
 }
 
 /** Action 定义：event 或 functionCall */
 export type ActionDef = EventAction | FunctionCallAction;
 
 // ============================================================
-// 组件定义
+// CheckRule - 输入校验规则
+// ============================================================
+
+export interface CheckRule {
+  condition: DynamicBoolean;
+  message: string;
+}
+
+// ============================================================
+// 组件定义 (v0.9 扁平格式)
 // ============================================================
 
 /**
- * 组件定义
+ * 组件定义（v0.9 扁平格式）
  * - id: 唯一标识
- * - weight: 在 Row/Column 中的相对权重（可选）
- * - component: 单键对象，键是组件类型名，值是该组件的属性
+ * - component: 组件类型名字符串
+ * - 其他属性直接作为顶层键
  */
 export interface ComponentDef {
   id: string;
-  weight?: number;
-  component: Record<string, Record<string, any>>;
-}
-
-/** 提取组件的类型名（如 "Text"、"Button"） */
-export function getComponentType(def: ComponentDef): string | undefined {
-  return Object.keys(def.component)[0];
-}
-
-/** 提取组件的属性对象 */
-export function getComponentProps(def: ComponentDef): Record<string, any> | undefined {
-  const type = getComponentType(def);
-  return type ? def.component[type] : undefined;
+  component: string;
+  [key: string]: any;
 }
 
 // ============================================================
-// 服务端 → 客户端消息
+// 服务端 → 客户端消息 (v0.9)
 // ============================================================
 
-/** surfaceUpdate: 更新组件 */
-export interface SurfaceUpdateMessage {
-  surfaceUpdate: {
+/** createSurface: 创建 Surface */
+export interface CreateSurfaceMessage {
+  version: 'v0.9';
+  createSurface: {
+    surfaceId: string;
+    catalogId: string;
+    theme?: Record<string, any>;
+    sendDataModel?: boolean;
+  };
+}
+
+/** updateComponents: 更新组件 */
+export interface UpdateComponentsMessage {
+  version: 'v0.9';
+  updateComponents: {
     surfaceId: string;
     components: ComponentDef[];
   };
 }
 
-/** dataModelUpdate: 更新数据模型 */
-export interface DataModelUpdateMessage {
-  dataModelUpdate: {
+/** updateDataModel: 更新数据模型 */
+export interface UpdateDataModelMessage {
+  version: 'v0.9';
+  updateDataModel: {
     surfaceId: string;
     path?: string;
-    contents: DataEntry[];
-  };
-}
-
-/** beginRendering: 开始渲染 */
-export interface BeginRenderingMessage {
-  beginRendering: {
-    surfaceId: string;
-    root: string;
-    catalogId?: string;
-    styles?: Record<string, any>;
+    value?: any;
   };
 }
 
 /** deleteSurface: 删除 Surface */
 export interface DeleteSurfaceMessage {
+  version: 'v0.9';
   deleteSurface: {
     surfaceId: string;
   };
 }
 
-/** 服务端 → 客户端消息联合类型（必须且只能包含一个键） */
+/** 服务端 → 客户端消息联合类型 */
 export type A2UIMessage =
-  | SurfaceUpdateMessage
-  | DataModelUpdateMessage
-  | BeginRenderingMessage
+  | CreateSurfaceMessage
+  | UpdateComponentsMessage
+  | UpdateDataModelMessage
   | DeleteSurfaceMessage;
 
 // ============================================================
 // 数据模型
 // ============================================================
-
-/** 数据条目（邻接列表格式） */
-export interface DataEntry {
-  key: string;
-  valueString?: string;
-  valueNumber?: number;
-  valueBoolean?: boolean;
-  valueMap?: DataEntry[];
-}
 
 /** 数据模型（普通 JSON 对象） */
 export interface DataModel {
@@ -163,12 +154,13 @@ export interface DataModel {
 }
 
 // ============================================================
-// 客户端 → 服务端消息
+// 客户端 → 服务端消息 (v0.9)
 // ============================================================
 
-/** userAction: 用户交互事件 */
-export interface UserAction {
-  userAction: {
+/** action: 用户交互事件 */
+export interface ActionMessage {
+  version: 'v0.9';
+  action: {
     name: string;
     surfaceId: string;
     sourceComponentId: string;
@@ -178,30 +170,19 @@ export interface UserAction {
 }
 
 /** error: 客户端错误报告 */
-export interface ClientError {
+export interface ClientErrorMessage {
+  version: 'v0.9';
   error: {
-    code?: string;
-    surfaceId?: string;
-    message?: string;
+    code: string;
+    surfaceId: string;
+    message: string;
+    path?: string;
     [key: string]: any;
   };
 }
 
 /** 客户端 → 服务端消息联合类型 */
-export type ClientToServerMessage = UserAction | ClientError;
-
-// ============================================================
-// A2A DataPart 包装
-// ============================================================
-
-/** A2UI 在 A2A 协议中的 DataPart 编码 */
-export interface A2ADataPart {
-  data: Record<string, any>;
-  kind: 'data';
-  metadata: {
-    mimeType: 'application/json+a2ui';
-  };
-}
+export type ClientToServerMessage = ActionMessage | ClientErrorMessage;
 
 // ============================================================
 // Catalog 定义
@@ -229,9 +210,9 @@ export interface CatalogDefinition {
 // ============================================================
 
 export type ParseResultType =
-  | 'surfaceUpdate'
-  | 'dataModelUpdate'
-  | 'beginRendering'
+  | 'createSurface'
+  | 'updateComponents'
+  | 'updateDataModel'
   | 'deleteSurface'
   | 'error';
 
@@ -262,11 +243,11 @@ export interface VNode {
 export interface SurfaceState {
   surfaceId: string;
   components: Map<string, ComponentDef>;
-  rootId?: string;
   isReady: boolean;
   dataModel: DataModel;
   catalogId?: string;
-  styles?: Record<string, any>;
+  theme?: Record<string, any>;
+  sendDataModel?: boolean;
 }
 
 // ============================================================

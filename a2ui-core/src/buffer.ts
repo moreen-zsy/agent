@@ -1,5 +1,5 @@
 /**
- * A2UI Surface 级消息缓冲区
+ * A2UI Surface 级消息缓冲区 (v0.9)
  * 管理每个 surface 的组件和数据模型
  */
 
@@ -34,24 +34,24 @@ export class A2UIBuffer {
    * 将消息推入缓冲区
    */
   push(message: A2UIMessage): void {
-    if ('surfaceUpdate' in message) {
-      const { surfaceId, components } = message.surfaceUpdate;
+    if ('updateComponents' in message) {
+      const { surfaceId, components } = message.updateComponents;
       const surface = this.getOrCreateSurface(surfaceId);
       for (const comp of components) {
         surface.components.set(comp.id, comp);
       }
-    } else if ('dataModelUpdate' in message) {
-      const { surfaceId, path, contents } = message.dataModelUpdate;
+    } else if ('updateDataModel' in message) {
+      const { surfaceId, path, value } = message.updateDataModel;
       const surface = this.getOrCreateSurface(surfaceId);
-      this.dataStore.update(surfaceId, path, contents);
+      this.dataStore.update(surfaceId, path, value);
       surface.dataModel = this.dataStore.getModel(surfaceId);
-    } else if ('beginRendering' in message) {
-      const { surfaceId, root, catalogId, styles } = message.beginRendering;
+    } else if ('createSurface' in message) {
+      const { surfaceId, catalogId, theme, sendDataModel } = message.createSurface;
       const surface = this.getOrCreateSurface(surfaceId);
-      surface.rootId = root;
       surface.isReady = true;
       if (catalogId) surface.catalogId = catalogId;
-      if (styles) surface.styles = styles;
+      if (theme) surface.theme = theme;
+      if (sendDataModel !== undefined) surface.sendDataModel = sendDataModel;
     } else if ('deleteSurface' in message) {
       const { surfaceId } = message.deleteSurface;
       this.surfaces.delete(surfaceId);
@@ -90,10 +90,15 @@ export class A2UIBuffer {
   }
 
   /**
-   * 获取指定 surface 的根组件 ID
+   * 查找指定 surface 的根组件 ID
    */
-  getRootId(surfaceId: string): string | undefined {
-    return this.surfaces.get(surfaceId)?.rootId;
+  findRootId(surfaceId: string): string | undefined {
+    const surface = this.surfaces.get(surfaceId);
+    if (!surface) return undefined;
+    for (const [id] of surface.components) {
+      if (id === 'root') return id;
+    }
+    return undefined;
   }
 
   /**

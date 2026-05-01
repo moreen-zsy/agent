@@ -1,0 +1,19 @@
+{
+  "name": "@a2ui/mcp-campus",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "campus-mcp": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

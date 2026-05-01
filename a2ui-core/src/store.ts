@@ -1,5 +1,5 @@
 /**
- * A2UI 状态管理
+ * A2UI 状态管理 (v0.9)
  * 纯 JS 实现，不依赖 React，框架无关
  *
  * 内部使用 zustand/vanilla 管理订阅/通知，
@@ -32,7 +32,7 @@ export interface A2UIStoreOptions {
  * A2UI Store - 核心状态管理
  *
  * 管理多 Surface 的组件树和数据模型，
- * 处理 A2UI v0.8 协议消息的入站/出站。
+ * 处理 A2UI v0.9 协议消息的入站/出站。
  *
  * 默认使用 zustand/vanilla 管理订阅，
  * 可通过 adapter 选项接入外部状态管理库。
@@ -123,7 +123,7 @@ export class A2UIStore {
    * 获取指定 surface 的根组件 ID
    */
   getRootId(surfaceId: string): string | undefined {
-    return this.buffer.getRootId(surfaceId);
+    return this.buffer.findRootId(surfaceId);
   }
 
   // ============================================================
@@ -131,10 +131,14 @@ export class A2UIStore {
   // ============================================================
 
   /**
-   * 发送用户操作（调用 onUserAction 回调）
+   * 发送用户操作（v0.9 action 格式）
    */
-  sendUserAction(action: ClientToServerMessage): void {
-    this.options.onUserAction?.(action);
+  sendUserAction(action: Omit<ClientToServerMessage, 'version'>): void {
+    const message: ClientToServerMessage = {
+      version: 'v0.9',
+      ...action,
+    } as ClientToServerMessage;
+    this.options.onUserAction?.(message);
   }
 
   // ============================================================
@@ -144,16 +148,6 @@ export class A2UIStore {
   /**
    * 订阅状态变化
    * 返回取消订阅函数
-   *
-   * @example
-   * ```typescript
-   * // React
-   * const version = useSyncExternalStore(
-   *   store.subscribe,
-   *   store.getSnapshot,
-   *   store.getSnapshot
-   * );
-   * ```
    */
   subscribe(listener: () => void): () => void {
     return this.notifier.subscribe(listener);

@@ -10,6 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@a2ui/core": "workspace:*",
+    "@a2ui/react-render": "workspace:*",
+    "@ag-ui/client": "catalog:agui",
+    "@ag-ui/core": "catalog:agui",
     "@hookform/resolvers": "catalog:react",
     "@radix-ui/react-accordion": "catalog:react",
     "@radix-ui/react-alert-dialog": "catalog:react",

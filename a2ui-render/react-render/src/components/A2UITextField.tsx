@@ -1,6 +1,6 @@
 /**
- * A2UI TextField 组件
- * 支持数据绑定，用户输入时更新数据模型
+ * A2UI TextField 组件 (v0.9)
+ * value 替代 text，variant 替代 textFieldType
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -8,39 +8,50 @@ import type { A2UIComponentProps } from './types.js';
 
 export interface TextFieldProps extends A2UIComponentProps {
   label: string;
-  text?: string;
-  textFieldType?: 'date' | 'longText' | 'number' | 'shortText' | 'obscured';
+  value?: string;
+  variant?: 'longText' | 'number' | 'shortText' | 'obscured';
   validationRegexp?: string;
 }
 
 export function A2UITextField({
   label,
-  text = '',
-  textFieldType = 'shortText',
+  value: propValue = '',
+  variant = 'shortText',
   _store,
   _surfaceId,
   _componentId,
+  _rawProps,
 }: TextFieldProps) {
-  const [value, setValue] = useState(text);
+  const [value, setValue] = useState(propValue);
 
   useEffect(() => {
-    setValue(text);
-  }, [text]);
+    setValue(propValue);
+  }, [propValue]);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       const newValue = e.target.value;
       setValue(newValue);
 
-      // 更新数据模型（如果有绑定的 path）
-      // 这里简化处理，实际需要通过组件定义中的 text 属性来确定 path
+      const rawValue = _rawProps?.value;
+      if (_store && _surfaceId && _componentId && rawValue?.path) {
+        _store.getDataStore().setValue(_surfaceId, rawValue.path, newValue);
+        _store.sendUserAction({
+          action: {
+            name: 'textField_changed',
+            surfaceId: _surfaceId,
+            sourceComponentId: _componentId,
+            timestamp: new Date().toISOString(),
+            context: { field: 'value', value: newValue },
+          },
+        });
+      }
     },
-    []
+    [_store, _surfaceId, _componentId, _rawProps]
   );
 
-  const inputType = textFieldType === 'obscured' ? 'password' : textFieldType === 'number' ? 'number' : 'text';
-
-  const isLongText = textFieldType === 'longText';
+  const inputType = variant === 'obscured' ? 'password' : variant === 'number' ? 'number' : 'text';
+  const isLongText = variant === 'longText';
 
   return (
     <div className="flex flex-col gap-1">

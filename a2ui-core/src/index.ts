@@ -1,7 +1,7 @@
 /**
  * @a2ui/core
  * A2UI 核心 SDK - 协议解析、状态管理、树构建
- * 严格对齐 A2UI v0.8 标准协议
+ * 严格对齐 A2UI v0.9 标准协议
  */
 
 export * from './types.js';
@@ -16,20 +16,13 @@ export {
   defineCatalog,
   validateComponent,
   validateComponents,
-  standardCatalogV08,
+  standardCatalogV09,
   type A2UICatalog,
   type CatalogComponentDef,
   type ValidationResult,
   type InferComponentProps,
   type InferComponentNames,
 } from './catalog.js';
-
-// AI Prompt 生成
-export {
-  generatePrompt,
-  catalogPrompt,
-  type PromptOptions,
-} from './prompt.js';
 
 // 状态管理抽象层（框架无关）
 export {

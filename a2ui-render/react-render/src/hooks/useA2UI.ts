@@ -18,7 +18,8 @@ export function useA2UI(store: A2UIStore, surfaceId: string): SurfaceState | und
 }
 
 /**
- * 使用 Store 的 dataStore 解析 BoundValue
+ * 使用 Store 的 dataStore 解析 DynamicValue
+ * v0.9: 支持字面量、{path} 数据绑定、{call} 函数调用
  */
 export function useResolvedValue(
   store: A2UIStore,
@@ -32,8 +33,13 @@ export function useResolvedValue(
   );
 
   return useMemo(() => {
-    if (value && typeof value === 'object' && ('path' in value || 'literalString' in value)) {
-      return store.getDataStore().resolveBoundValue(surfaceId, value);
+    if (value !== null && typeof value === 'object') {
+      // FunctionCall 透传
+      if ('call' in value) return value;
+      // DataBinding 解析
+      if ('path' in value) {
+        return store.getDataStore().getValue(surfaceId, value.path);
+      }
     }
     return value;
   }, [store, surfaceId, value, version]);

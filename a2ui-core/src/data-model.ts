@@ -1,9 +1,10 @@
 /**
- * A2UI 数据模型管理
+ * A2UI 数据模型管理 (v0.9)
  * 存储每个 surface 的 JSON 数据，支持 JSON Pointer 路径解析
+ * v0.9 使用标准 JSON，不再使用邻接列表格式的 DataEntry
  */
 
-import type { DataEntry, DataModel, BoundValue } from './types.js';
+import type { DataModel, DynamicValue } from './types.js';
 
 export class DataModelStore {
   private models = new Map<string, DataModel>();
@@ -19,46 +20,20 @@ export class DataModelStore {
   }
 
   /**
-   * 使用 dataModelUpdate 更新数据模型（不可变更新）
+   * 使用 updateDataModel 更新数据模型（不可变更新）
    * @param path 数据模型内的路径，省略或 "/" 则替换整个根
+   * @param value 标准 JSON 值
    */
-  update(surfaceId: string, path: string | undefined, contents: DataEntry[]): void {
+  update(surfaceId: string, path: string | undefined, value: any): void {
     let model = this.getModel(surfaceId);
-    const data = this.entriesToObject(contents);
 
     if (!path || path === '/' || path === '') {
-      this.models.set(surfaceId, data);
+      this.models.set(surfaceId, value ?? {});
       return;
     }
 
-    const target = this.getValueByPath(model, path);
-    if (target && typeof target === 'object' && !Array.isArray(target)) {
-      // 不可变浅合并：只 clone 路径上的对象
-      const merged = { ...target, ...data };
-      model = this.immutableSetByPath(model, path, merged);
-    } else {
-      model = this.immutableSetByPath(model, path, data);
-    }
+    model = this.immutableSetByPath(model, path, value);
     this.models.set(surfaceId, model);
-  }
-
-  /**
-   * 将邻接列表格式的 DataEntry[] 转换为普通 JSON 对象
-   */
-  private entriesToObject(entries: DataEntry[]): DataModel {
-    const result: DataModel = {};
-    for (const entry of entries) {
-      if (entry.valueString !== undefined) {
-        result[entry.key] = entry.valueString;
-      } else if (entry.valueNumber !== undefined) {
-        result[entry.key] = entry.valueNumber;
-      } else if (entry.valueBoolean !== undefined) {
-        result[entry.key] = entry.valueBoolean;
-      } else if (entry.valueMap !== undefined) {
-        result[entry.key] = this.entriesToObject(entry.valueMap);
-      }
-    }
-    return result;
   }
 
   /**
@@ -110,47 +85,34 @@ export class DataModelStore {
     return result;
   }
 
-  private setValueByPath(obj: any, path: string, value: any): void {
-    if (!path || path === '/') {
-      Object.assign(obj, value);
-      return;
-    }
-    const parts = path.split('/').filter(p => p !== '');
-    let current = obj;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i]!;
-      if (!(part in current) || typeof current[part] !== 'object') {
-        current[part] = {};
-      }
-      current = current[part];
-    }
-    const lastPart = parts[parts.length - 1]!;
-    current[lastPart] = value;
-  }
-
   /**
-   * 解析 BoundValue
-   * - literal*: 直接返回值
-   * - path: 从数据模型中查找
-   * - path + literal*: 先写入数据模型，再绑定（初始化简写）
+   * 解析 DynamicValue
+   * - 字面量（string/number/boolean/array）：直接返回值
+   * - {path}: 从数据模型中查找
+   * - {call, args, returnType}: 透传给组件（组件自行处理 FunctionCall）
    */
-  resolveBoundValue(surfaceId: string, boundValue: BoundValue): any {
-    const bv = boundValue as Record<string, any>;
-
-    // 初始化简写：path + literal
-    if ('path' in bv && ('literalString' in bv || 'literalNumber' in bv || 'literalBoolean' in bv)) {
-      const value = bv.literalString ?? bv.literalNumber ?? bv.literalBoolean;
-      this.setValueByPath(this.getModel(surfaceId), bv.path, value);
+  resolveDynamicValue(surfaceId: string, value: DynamicValue): any {
+    // 如果是 FunctionCall，直接透传
+    if (value !== null && typeof value === 'object' && 'call' in value) {
       return value;
     }
 
-    // 纯路径绑定
-    if ('path' in bv) {
-      return this.getValue(surfaceId, bv.path);
+    // 如果是 DataBinding，从数据模型查找
+    if (value !== null && typeof value === 'object' && 'path' in value) {
+      return this.getValue(surfaceId, (value as { path: string }).path);
     }
 
-    // 纯字面量
-    return bv.literalString ?? bv.literalNumber ?? bv.literalBoolean;
+    // 字面量直接返回
+    return value;
+  }
+
+  /**
+   * 直接设置指定 path 的值（用于组件双向绑定）
+   */
+  setValue(surfaceId: string, path: string, value: any): void {
+    const model = this.getModel(surfaceId);
+    const updated = this.immutableSetByPath(model, path, value);
+    this.models.set(surfaceId, updated);
   }
 
   /**

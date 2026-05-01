@@ -16,8 +16,20 @@
   },
   "dependencies": {
     "@a2ui/core": "workspace:*",
-    "ai": "^4.0.0",
-    "zod": "^3.25.0"
+    "@ag-ui/a2ui-middleware": "catalog:agui",
+    "@ag-ui/client": "catalog:agui",
+    "@ag-ui/core": "catalog:agui",
+    "@ag-ui/encoder": "catalog:agui",
+    "@ai-sdk/anthropic": "catalog:ai-sdk",
+    "@ai-sdk/mcp": "catalog:ai-sdk",
+    "@ai-sdk/openai": "catalog:ai-sdk",
+    "@inquirer/prompts": "catalog:lib",
+    "@modelcontextprotocol/sdk": "catalog:server",
+    "ai": "catalog:",
+    "dotenv": "catalog:",
+    "jose": "catalog:",
+    "zod": "catalog:",
+    "zod-to-json-schema": "catalog:"
   },
   "devDependencies": {
     "typescript": "catalog:",
