@@ -34,9 +34,9 @@ export function MessageLog({ messages }: MessageLogProps) {
                 className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
                   msg.type === 'error'
                     ? 'bg-red-100 text-red-700'
-                    : msg.type === 'beginRendering'
+                    : msg.type === 'createSurface'
                       ? 'bg-green-100 text-green-700'
-                      : msg.type === 'dataModelUpdate'
+                      : msg.type === 'updateDataModel'
                         ? 'bg-blue-100 text-blue-700'
                         : 'bg-gray-100 text-gray-700'
                 }`}

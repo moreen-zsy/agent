@@ -38,7 +38,7 @@ export function JSONLInput({ defaultValue = '', onStream }: JSONLInputProps) {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         className="flex-1 min-h-[200px] p-3 rounded border border-gray-300 font-mono text-xs focus:border-blue-500 focus:outline-none resize-y"
-        placeholder='{"surfaceUpdate": {"surfaceId": "main", "components": [...]}}'
+        placeholder='{"version": "v0.9", "updateComponents": {"surfaceId": "main", "components": [...]}}'
         spellCheck={false}
       />
       <div className="flex gap-2">
