@@ -4,21 +4,20 @@ import {
   defineCatalog,
   validateComponent,
   validateComponents,
-  standardCatalogV08,
+  standardCatalogV09,
   type InferComponentProps,
 } from '../src/catalog.js';
 
 describe('Catalog', () => {
+  const dynString = z.union([z.string(), z.object({ path: z.string() })]);
+
   const testCatalog = defineCatalog({
     catalogId: 'test-catalog',
     version: '1.0.0',
     components: {
       Text: {
         props: z.object({
-          text: z.union([
-            z.object({ literalString: z.string() }),
-            z.object({ path: z.string() }),
-          ]),
+          text: dynString,
           style: z.enum(['heading', 'body']).optional(),
         }),
         description: '文本组件',
@@ -26,10 +25,7 @@ describe('Catalog', () => {
       },
       Button: {
         props: z.object({
-          label: z.union([
-            z.object({ literalString: z.string() }),
-            z.object({ path: z.string() }),
-          ]),
+          label: dynString,
           variant: z.enum(['primary', 'secondary']).optional(),
         }),
         description: '按钮组件',
@@ -46,7 +42,7 @@ describe('Catalog', () => {
 
   it('should validate valid component', () => {
     const result = validateComponent(
-      { Text: { text: { literalString: 'Hello' } } },
+      { id: 't1', component: 'Text', text: 'Hello' },
       testCatalog
     );
     expect(result.success).toBe(true);
@@ -54,7 +50,7 @@ describe('Catalog', () => {
 
   it('should validate component with optional props', () => {
     const result = validateComponent(
-      { Text: { text: { literalString: 'Hello' }, style: 'heading' } },
+      { id: 't2', component: 'Text', text: 'Hello', style: 'heading' },
       testCatalog
     );
     expect(result.success).toBe(true);
@@ -62,7 +58,7 @@ describe('Catalog', () => {
 
   it('should fail validation for missing required prop', () => {
     const result = validateComponent(
-      { Text: {} },
+      { id: 't3', component: 'Text' },
       testCatalog
     );
     expect(result.success).toBe(false);
@@ -71,7 +67,7 @@ describe('Catalog', () => {
 
   it('should fail validation for invalid prop type', () => {
     const result = validateComponent(
-      { Text: { text: { literalNumber: 42 } } },
+      { id: 't4', component: 'Text', text: 42 },
       testCatalog
     );
     expect(result.success).toBe(false);
@@ -79,7 +75,7 @@ describe('Catalog', () => {
 
   it('should fail validation for unknown component type', () => {
     const result = validateComponent(
-      { Unknown: { foo: 'bar' } },
+      { id: 'u1', component: 'Unknown', foo: 'bar' },
       testCatalog
     );
     expect(result.success).toBe(false);
@@ -88,7 +84,7 @@ describe('Catalog', () => {
 
   it('should fail validation for missing component type', () => {
     const result = validateComponent(
-      {},
+      { id: 'm1' } as any,
       testCatalog
     );
     expect(result.success).toBe(false);
@@ -98,8 +94,8 @@ describe('Catalog', () => {
   it('should validate multiple components', () => {
     const result = validateComponents(
       [
-        { Text: { text: { literalString: 'A' } } },
-        { Button: { label: { literalString: 'B' } } },
+        { id: 'a', component: 'Text', text: 'A' },
+        { id: 'b', component: 'Button', label: 'B' },
       ],
       testCatalog
     );
@@ -109,8 +105,8 @@ describe('Catalog', () => {
   it('should fail batch validation with errors', () => {
     const result = validateComponents(
       [
-        { Text: { text: { literalString: 'A' } } },
-        { Button: {} },
+        { id: 'a', component: 'Text', text: 'A' },
+        { id: 'b', component: 'Button' },
       ],
       testCatalog
     );
@@ -118,8 +114,8 @@ describe('Catalog', () => {
     expect(result.errors?.[0]).toContain('component 1');
   });
 
-  it('standard catalog should have v0.8 components', () => {
-    const names = Object.keys(standardCatalogV08.components);
+  it('standard catalog should have v0.9 components', () => {
+    const names = Object.keys(standardCatalogV09.components);
     expect(names).toContain('Text');
     expect(names).toContain('Button');
     expect(names).toContain('Card');
@@ -130,7 +126,9 @@ describe('Catalog', () => {
     expect(names).toContain('Icon');
     expect(names).toContain('Tabs');
     expect(names).toContain('Modal');
-    expect(names.length).toBeGreaterThanOrEqual(16);
+    expect(names).toContain('Switch');
+    expect(names).toContain('Chip');
+    expect(names.length).toBeGreaterThanOrEqual(20);
   });
 });
 

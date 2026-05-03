@@ -146,9 +146,10 @@ describe('A2UIStore with notifiers', () => {
     const unsubscribe = store.subscribe(listener);
 
     store.processMessage({
-      surfaceUpdate: {
+      version: 'v0.9',
+      updateComponents: {
         surfaceId: 'test',
-        components: [{ id: 'a', component: { Text: { text: { literalString: 'hi' } } } }],
+        components: [{ id: 'a', component: 'Text', text: 'hi' }],
       },
     });
 
@@ -181,9 +182,10 @@ describe('A2UIStore with notifiers', () => {
     store.subscribe(listener);
 
     store.processMessage({
-      surfaceUpdate: {
+      version: 'v0.9',
+      updateComponents: {
         surfaceId: 'test',
-        components: [{ id: 'a', component: { Text: { text: { literalString: 'hi' } } } }],
+        components: [{ id: 'a', component: 'Text', text: 'hi' }],
       },
     });
 
@@ -197,17 +199,19 @@ describe('A2UIStore with notifiers', () => {
 
     // processMessage
     store.processMessage({
-      surfaceUpdate: {
+      version: 'v0.9',
+      updateComponents: {
         surfaceId: 'main',
         components: [
-          { id: 'root', component: { Column: { children: { explicitList: ['text1'] } } } },
-          { id: 'text1', component: { Text: { text: { literalString: 'Hello' } } } },
+          { id: 'root', component: 'Column', children: ['text1'] },
+          { id: 'text1', component: 'Text', text: 'Hello' },
         ],
       },
     });
 
     store.processMessage({
-      beginRendering: { surfaceId: 'main', root: 'root' },
+      version: 'v0.9',
+      createSurface: { surfaceId: 'main', catalogId: 'test-catalog' },
     });
 
     // query APIs
