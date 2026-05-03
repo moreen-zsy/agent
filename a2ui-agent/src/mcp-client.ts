@@ -8,6 +8,7 @@
  * 依赖:
  *   - a2ui-server 已启动并监听 A2UI_API_BASE（默认 http://localhost:3000）
  *   - .env 中提供 KIMI_API_KEY
+ *   - 用户已在前端登录并拥有 JWT Token
  */
 
 import { resolve } from "path";
@@ -33,14 +34,13 @@ const kimi = createAnthropic({
 const SYSTEM_PROMPT = `你是 A2UI 业务助手，可以同时调用「点餐」和「校园」两个领域的工具。
 
 可用工具按领域分组：
-- food-mcp: 菜单浏览、下单、订单管理（auth_register/auth_login, query_menu, get_dish_detail, place_order, get_orders, get_order_detail, update_order_status, cancel_order）
-- campus-mcp: 设施查询、场地预约、缴费（auth_register/auth_login, query_facilities, get_facility_detail, book_facility, get_reservations, update_reservation, cancel_reservation, pay_fee, query_payments, update_payment）
+- food-mcp: 菜单浏览、下单、订单管理（query_menu, get_dish_detail, place_order, get_orders, get_order_detail, update_order_status, cancel_order）
+- campus-mcp: 设施查询、场地预约、缴费（query_facilities, get_facility_detail, book_facility, get_reservations, update_reservation, cancel_reservation, pay_fee, query_payments, update_payment）
 
 调用约定：
-1. 需要登录的工具会返回 {"code":"NEED_LOGIN"}，此时主动调用 auth_register（首次）或 auth_login（已有账号）拿到 token 后再重试。
-2. 注意 food-mcp 与 campus-mcp 各自维护独立的 token 缓存，登录时需在对应 MCP 上调用。
-3. 当用户的问题跨领域时（例如"订午饭并预约自习室"），分别调用两个 MCP 的工具协同完成。
-4. 用中文回答，简洁清晰。`;
+1. 用户已通过前端完成登录，你拥有该用户的 JWT Token。调用任何需要认证的工具（place_order、get_orders、book_facility 等）时，必须在对应工具的 token 参数中传入该 JWT。
+2. 当用户的问题跨领域时（例如"订午饭并预约自习室"），分别调用两个 MCP 的工具协同完成，每次调用都携带 token。
+3. 用中文回答，简洁清晰。`;
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "..", "..");
 const FOOD_MCP_ENTRY = resolve(

@@ -1,6 +1,6 @@
 # @a2ui/monorepo
 
-## 项目背景
+## 项目背景(中文Cot)
 
 A2UI（Agent-to-User Interface）是专为 AI Agent 设计的生成式 UI 协议。本项目基于 **A2UI v0.9** 协议，使用 **AGUI** 作为标准化传输层，构建一个与业务无关的 Agent 引擎，可为任意前端应用提供服务。
 
@@ -12,6 +12,7 @@ A2UI：    任务 → AI 生成 UI 描述 → 协议传输 → 渲染（秒级�
 ```
 
 v0.9 相比 v0.8 的关键改进：
+
 - **扁平组件格式**：`{component: "Text", text: "Hello"}` 替代嵌套结构
 - **DynamicValue**：统一字面量、`{path}` 数据绑定、`{call}` 函数调用
 - **AGUI 传输层**：标准化事件流（RUN_STARTED → TEXT_MESSAGE → ACTIVITY_SNAPSHOT → RUN_FINISHED）
@@ -41,13 +42,13 @@ v0.9 相比 v0.8 的关键改进：
 
 **分层说明：**
 
-| 包 | 运行环境 | 职责 |
-| --- | --- | --- |
-| `a2ui-agent` | 服务端 | LLM 代理：透传 messages/tools/context，原样返回 AGUI 事件流 |
-| `a2ui-server` | 服务端 | 传输层：Elysia HTTP 路由，接收 AGUI 请求，流式响应 |
-| `a2ui-core` | **客户端** | 协议层：v0.9 协议解析、状态管理、树构建、增量更新 |
-| `a2ui-render` | **客户端** | 视图层：将 v0.9 协议树渲染为 React / Vue 组件 |
-| `@ag-ui/*` | 客户端 | AGUI 生态：HttpAgent 传输、A2UIMiddleware 协议转换 |
+| 包            | 运行环境   | 职责                                                        |
+| ------------- | ---------- | ----------------------------------------------------------- |
+| `a2ui-agent`  | 服务端     | LLM 代理：透传 messages/tools/context，原样返回 AGUI 事件流 |
+| `a2ui-server` | 服务端     | 传输层：Elysia HTTP 路由，接收 AGUI 请求，流式响应          |
+| `a2ui-core`   | **客户端** | 协议层：v0.9 协议解析、状态管理、树构建、增量更新           |
+| `a2ui-render` | **客户端** | 视图层：将 v0.9 协议树渲染为 React / Vue 组件               |
+| `@ag-ui/*`    | 客户端     | AGUI 生态：HttpAgent 传输、A2UIMiddleware 协议转换          |
 
 - **服务端极简**：a2ui-agent 不再手动定义 `render_a2ui` tool 或构建 prompt，所有 A2UI 逻辑由客户端 A2UIMiddleware 处理
 - **客户端自治**：中间件自动注入 v0.9 schema、拦截 tool call、渐进式解析 JSON、emit ACTIVITY_SNAPSHOT
@@ -115,18 +116,18 @@ d:/agent/
 
 ## 技术栈
 
-| 层级 | 技术 | 说明 |
-| --- | --- | --- |
-| 运行时 | Bun | 高性能 JS/TS 运行时 |
-| 语言 | TypeScript | 类型安全 |
-| Monorepo | Bun Workspace + Catalogs | 统一依赖版本管理 |
-| 前端框架 | React 19 / Vue 3 | UI 渲染 |
-| 构建工具 | Vite | 前端开发服务器和构建 |
-| 服务端 | Elysia | 高性能 Bun 服务端框架 |
-| Agent SDK | ai / @ai-sdk/openai | LLM 调用和流式处理 |
-| AGUI 生态 | @ag-ui/client / @ag-ui/a2ui-middleware / @ag-ui/core | 标准化传输层 + A2UI 协议转换 |
-| Schema 验证 | Zod | 运行时类型安全 |
-| 测试 | Vitest | 单元测试 |
+| 层级        | 技术                                                 | 说明                         |
+| ----------- | ---------------------------------------------------- | ---------------------------- |
+| 运行时      | Bun                                                  | 高性能 JS/TS 运行时          |
+| 语言        | TypeScript                                           | 类型安全                     |
+| Monorepo    | Bun Workspace + Catalogs                             | 统一依赖版本管理             |
+| 前端框架    | React 19 / Vue 3                                     | UI 渲染                      |
+| 构建工具    | Vite                                                 | 前端开发服务器和构建         |
+| 服务端      | Elysia                                               | 高性能 Bun 服务端框架        |
+| Agent SDK   | ai / @ai-sdk/openai                                  | LLM 调用和流式处理           |
+| AGUI 生态   | @ag-ui/client / @ag-ui/a2ui-middleware / @ag-ui/core | 标准化传输层 + A2UI 协议转换 |
+| Schema 验证 | Zod                                                  | 运行时类型安全               |
+| 测试        | Vitest                                               | 单元测试                     |
 
 ## 依赖管理规范（Bun Workspace + Catalogs）
 
@@ -134,30 +135,31 @@ d:/agent/
 
 ### Catalog 分类
 
-| Catalog | 用途 | 包含依赖 |
-| --- | --- | --- |
-| `catalog`（默认） | 通用基础依赖 | `typescript`, `react`, `react-dom`, `vue`, `zod`, `vitest`, `ai`, `jose`, `dotenv`, `zod-to-json-schema` 等 |
-| `catalog:react` | React 生态 | `lucide-react`, `react-router`, `@radix-ui/*`, `framer-motion`, `tailwind-merge` 等 |
-| `catalog:vue` | Vue 生态 | `vue-router`, `pinia`, `lucide-vue-next` 等 |
-| `catalog:build` | 构建工具 | `vite`, `postcss`, `autoprefixer` 等 |
-| `catalog:dev` | 开发工具 | `@vitejs/*`, `eslint`, `typescript-eslint` 等 |
-| `catalog:agui` | AGUI 传输层 | `@ag-ui/client`, `@ag-ui/core`, `@ag-ui/encoder`, `@ag-ui/a2ui-middleware` |
-| `catalog:ai-sdk` | AI SDK Provider | `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/mcp` |
-| `catalog:server` | 服务端依赖 | `elysia`, `@elysiajs/*`, `drizzle-orm`, `postgres`, `@modelcontextprotocol/sdk` |
-| `catalog:lib` | 通用库 | `zustand`, `@inquirer/prompts` |
+| Catalog           | 用途            | 包含依赖                                                                                                    |
+| ----------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
+| `catalog`（默认） | 通用基础依赖    | `typescript`, `react`, `react-dom`, `vue`, `zod`, `vitest`, `ai`, `jose`, `dotenv`, `zod-to-json-schema` 等 |
+| `catalog:react`   | React 生态      | `lucide-react`, `react-router`, `@radix-ui/*`, `framer-motion`, `tailwind-merge` 等                         |
+| `catalog:vue`     | Vue 生态        | `vue-router`, `pinia`, `lucide-vue-next` 等                                                                 |
+| `catalog:build`   | 构建工具        | `vite`, `postcss`, `autoprefixer` 等                                                                        |
+| `catalog:dev`     | 开发工具        | `@vitejs/*`, `eslint`, `typescript-eslint` 等                                                               |
+| `catalog:agui`    | AGUI 传输层     | `@ag-ui/client`, `@ag-ui/core`, `@ag-ui/encoder`, `@ag-ui/a2ui-middleware`                                  |
+| `catalog:ai-sdk`  | AI SDK Provider | `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/mcp`                                                        |
+| `catalog:server`  | 服务端依赖      | `elysia`, `@elysiajs/*`, `drizzle-orm`, `postgres`, `@modelcontextprotocol/sdk`                             |
+| `catalog:lib`     | 通用库          | `zustand`, `@inquirer/prompts`                                                                              |
 
 ### 关键依赖版本约束
 
-| 包 | 版本 | 说明 |
-| --- | --- | --- |
-| `ai` | `^6.0.0` | Vercel AI SDK v6，`streamText` 使用 `ModelMessage[]`，`text-delta` chunk 字段为 `text`（非 `textDelta`），`tool-result` 字段为 `output`（非 `result`） |
-| `@ai-sdk/openai` | `^3.0.55` | 与 ai v6 兼容，模型创建用 `openai.chat('gpt-4o-mini')`（非 `openai('gpt-4o-mini')`） |
-| `zod` | `^4.3.5` | Zod v4，`z.record()` 必须传两个参数：`z.record(z.string(), z.any())` |
-| `tailwindcss` | **不统一** | 各业务应用自行管理版本（React 项目用 v3，Vue 项目用 v4），不加入 catalog |
+| 包               | 版本       | 说明                                                                                                                                                   |
+| ---------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ai`             | `^6.0.0`   | Vercel AI SDK v6，`streamText` 使用 `ModelMessage[]`，`text-delta` chunk 字段为 `text`（非 `textDelta`），`tool-result` 字段为 `output`（非 `result`） |
+| `@ai-sdk/openai` | `^3.0.55`  | 与 ai v6 兼容，模型创建用 `openai.chat('gpt-4o-mini')`（非 `openai('gpt-4o-mini')`）                                                                   |
+| `zod`            | `^4.3.5`   | Zod v4，`z.record()` 必须传两个参数：`z.record(z.string(), z.any())`                                                                                   |
+| `tailwindcss`    | **不统一** | 各业务应用自行管理版本（React 项目用 v3，Vue 项目用 v4），不加入 catalog                                                                               |
 
 ### 使用示例
 
 工作区包的 `package.json`：
+
 ```json
 {
   "dependencies": {
@@ -186,6 +188,7 @@ d:/agent/
 ## A2UI v0.9 协议速览
 
 **组件格式（扁平）：**
+
 ```json
 {
   "id": "root",
@@ -195,6 +198,7 @@ d:/agent/
 ```
 
 **消息类型（均带 `version: "v0.9"`）：**
+
 - `createSurface` — 创建 Surface，指定 theme/sendDataModel
 - `updateComponents` — 更新/替换组件列表
 - `updateDataModel` — 更新数据模型（标准 JSON）
@@ -202,6 +206,7 @@ d:/agent/
 - `action` — 用户交互（Button 点击等）
 
 **DynamicValue 三种形式：**
+
 - 字面量：`"Hello"` / `42` / `true`
 - 数据绑定：`{"path": "/user/name"}`
 - 函数调用：`{"call": "formatDate", "args": {"date": {"path": "/order/createdAt"}}}`

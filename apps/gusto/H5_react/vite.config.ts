@@ -11,8 +11,11 @@ export default defineConfig({
     port: 3000,
   },
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      // clarinet (via @ag-ui/a2ui-middleware) does `require('stream').Stream`
+      // at module init; without a browser shim it resolves to undefined.
+      { find: 'stream', replacement: path.resolve(__dirname, './src/shims/stream.js') },
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+    ],
   },
 });

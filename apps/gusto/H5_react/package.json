@@ -14,6 +14,7 @@
     "@a2ui/react-render": "workspace:*",
     "@ag-ui/client": "catalog:agui",
     "@ag-ui/core": "catalog:agui",
+    "@ag-ui/a2ui-middleware": "catalog:agui",
     "@hookform/resolvers": "catalog:react",
     "@radix-ui/react-accordion": "catalog:react",
     "@radix-ui/react-alert-dialog": "catalog:react",

@@ -161,6 +161,7 @@
       "dependencies": {
         "@a2ui/core": "workspace:*",
         "@a2ui/react-render": "workspace:*",
+        "@ag-ui/a2ui-middleware": "catalog:agui",
         "@ag-ui/client": "catalog:agui",
         "@ag-ui/core": "catalog:agui",
         "@hookform/resolvers": "catalog:react",

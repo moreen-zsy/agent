@@ -4,9 +4,8 @@
  * 通过 stdio 与 MCP Client 通信，调用 a2ui-server 的 Elysia REST API
  *
  * 工具列表:
- * - auth_register / auth_login: 注册或登录，自动缓存 JWT
- * - query_menu / get_dish_detail: 浏览菜单（无需登录）
- * - place_order / get_orders / get_order_detail / update_order_status / cancel_order: 订单管理（需登录）
+ * - query_menu / get_dish_detail: 浏览菜单（公开）
+ * - place_order / get_orders / get_order_detail / update_order_status / cancel_order: 订单管理（需传入 JWT Token）
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -18,17 +17,16 @@ import { z } from "zod";
 // ───────────────────────────────────────────────────────────────
 
 const API_BASE = process.env.A2UI_API_BASE || "http://localhost:3000";
-let authToken = "";
 
 type ApiOptions = {
   method?: "GET" | "POST" | "PUT" | "DELETE";
   query?: Record<string, string | number | undefined>;
   body?: unknown;
-  auth?: boolean;
+  token?: string;
 };
 
 async function apiCall(path: string, options: ApiOptions = {}) {
-  const { method = "GET", query, body, auth = false } = options;
+  const { method = "GET", query, body, token } = options;
 
   const url = new URL(API_BASE + path);
   if (query) {
@@ -41,14 +39,8 @@ async function apiCall(path: string, options: ApiOptions = {}) {
 
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (auth) {
-    if (!authToken) {
-      return {
-        error: "未登录，请先调用 auth_register 或 auth_login",
-        code: "NEED_LOGIN",
-      };
-    }
-    headers.Authorization = `Bearer ${authToken}`;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
   }
 
   const res = await fetch(url, {
@@ -81,50 +73,6 @@ const server = new McpServer({
 // ───────────────────────────────────────────────────────────────
 // 3. 注册工具
 // ───────────────────────────────────────────────────────────────
-
-// ── 认证 ────────────────────────────────────────────────────────
-
-server.registerTool(
-  "auth_register",
-  {
-    description:
-      "通过邮箱注册新用户并获取 JWT。注册后 token 会缓存在 MCP 服务进程内，后续需要登录的工具会自动携带。",
-    inputSchema: {
-      email: z.string().email().describe("用户邮箱"),
-      name: z.string().min(1).describe("用户姓名"),
-    },
-  },
-  async ({ email, name }) => {
-    const res = await apiCall("/api/auth/register", {
-      method: "POST",
-      body: { email, name },
-    });
-    if (res?.success && res?.data?.token) {
-      authToken = res.data.token;
-    }
-    return ok(res);
-  },
-);
-
-server.registerTool(
-  "auth_login",
-  {
-    description: "通过邮箱登录，获取 JWT 并缓存到 MCP 服务进程内",
-    inputSchema: {
-      email: z.string().email().describe("用户邮箱"),
-    },
-  },
-  async ({ email }) => {
-    const res = await apiCall("/api/auth/login", {
-      method: "POST",
-      body: { email },
-    });
-    if (res?.success && res?.data?.token) {
-      authToken = res.data.token;
-    }
-    return ok(res);
-  },
-);
 
 // ── 菜单（公开） ────────────────────────────────────────────────
 
@@ -176,7 +124,7 @@ server.registerTool(
 server.registerTool(
   "place_order",
   {
-    description: "下单。需先登录。",
+    description: "下单。需传入 JWT Token。",
     inputSchema: {
       items: z
         .array(
@@ -190,13 +138,14 @@ server.registerTool(
         .min(1)
         .describe("订单菜品列表"),
       address: z.string().min(1).describe("配送地址"),
+      token: z.string().min(1).describe("JWT 认证 Token"),
     },
   },
-  async ({ items, address }) => {
+  async ({ items, address, token }) => {
     const res = await apiCall("/api/food/order", {
       method: "POST",
       body: { items, address },
-      auth: true,
+      token,
     });
     return ok(res);
   },
@@ -205,7 +154,7 @@ server.registerTool(
 server.registerTool(
   "get_orders",
   {
-    description: "获取当前登录用户的订单列表。需先登录。",
+    description: "获取当前登录用户的订单列表。需传入 JWT Token。",
     inputSchema: {
       page: z.number().int().min(1).optional().describe("页码，默认 1"),
       pageSize: z
@@ -226,12 +175,13 @@ server.registerTool(
         ])
         .optional()
         .describe("按订单状态过滤"),
+      token: z.string().min(1).describe("JWT 认证 Token"),
     },
   },
-  async ({ page, pageSize, status }) => {
+  async ({ page, pageSize, status, token }) => {
     const res = await apiCall("/api/food/orders", {
       query: { page, pageSize, status },
-      auth: true,
+      token,
     });
     return ok(res);
   },
@@ -240,14 +190,15 @@ server.registerTool(
 server.registerTool(
   "get_order_detail",
   {
-    description: "获取单个订单详情。需先登录。",
+    description: "获取单个订单详情。需传入 JWT Token。",
     inputSchema: {
       id: z.string().min(1).describe("订单 UUID"),
+      token: z.string().min(1).describe("JWT 认证 Token"),
     },
   },
-  async ({ id }) => {
+  async ({ id, token }) => {
     const res = await apiCall(`/api/food/orders/${encodeURIComponent(id)}`, {
-      auth: true,
+      token,
     });
     return ok(res);
   },
@@ -257,7 +208,7 @@ server.registerTool(
   "update_order_status",
   {
     description:
-      "更新订单状态（仅订单创建者可操作）。需先登录。",
+      "更新订单状态（仅订单创建者可操作）。需传入 JWT Token。",
     inputSchema: {
       id: z.string().min(1).describe("订单 UUID"),
       status: z
@@ -270,13 +221,14 @@ server.registerTool(
           "cancelled",
         ])
         .describe("新状态"),
+      token: z.string().min(1).describe("JWT 认证 Token"),
     },
   },
-  async ({ id, status }) => {
+  async ({ id, status, token }) => {
     const res = await apiCall(`/api/food/orders/${encodeURIComponent(id)}`, {
       method: "PUT",
       body: { status },
-      auth: true,
+      token,
     });
     return ok(res);
   },
@@ -286,15 +238,16 @@ server.registerTool(
   "cancel_order",
   {
     description:
-      "删除订单（仅订单创建者可操作）。需先登录。",
+      "删除订单（仅订单创建者可操作）。需传入 JWT Token。",
     inputSchema: {
       id: z.string().min(1).describe("订单 UUID"),
+      token: z.string().min(1).describe("JWT 认证 Token"),
     },
   },
-  async ({ id }) => {
+  async ({ id, token }) => {
     const res = await apiCall(`/api/food/orders/${encodeURIComponent(id)}`, {
       method: "DELETE",
-      auth: true,
+      token,
     });
     return ok(res);
   },
