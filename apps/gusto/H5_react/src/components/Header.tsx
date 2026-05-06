@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router';
-import { ShoppingBag, Menu, X } from 'lucide-react';
+import { ShoppingBag, Menu, X, User, LogOut } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
+import { useAuth } from '@/context/AuthContext';
 
 export default function Header() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { totalItems, toggleCart } = useCart();
+  const { user, logout, openLoginModal } = useAuth();
   const location = useLocation();
 
   const isOrderPage = location.pathname === '/order';
@@ -25,6 +27,14 @@ export default function Header() {
       el.scrollIntoView({ behavior: 'smooth' });
       setMobileMenuOpen(false);
     }
+  };
+
+  const handleCartClick = () => {
+    if (!user) {
+      openLoginModal();
+      return;
+    }
+    toggleCart();
   };
 
   return (
@@ -93,6 +103,29 @@ export default function Header() {
 
           {/* Right Actions */}
           <div className="flex items-center gap-4">
+            {user ? (
+              <div className="hidden md:flex items-center gap-3">
+                <span className="text-white/70 text-xs font-display">
+                  {user.name || user.email}
+                </span>
+                <button
+                  onClick={logout}
+                  className="p-2 text-white/50 hover:text-white transition-colors"
+                  title="退出登录"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={openLoginModal}
+                className="hidden md:flex items-center gap-2 text-white/70 hover:text-white text-xs uppercase tracking-widest font-display transition-colors"
+              >
+                <User className="w-4 h-4" />
+                登录
+              </button>
+            )}
+
             <Link
               to="/order"
               className="hidden md:block text-xs uppercase tracking-widest font-display bg-brand-orange text-white px-5 py-2.5 rounded-full hover:bg-brand-orange/90 transition-all hover:shadow-glow"
@@ -101,7 +134,7 @@ export default function Header() {
             </Link>
 
             <button
-              onClick={toggleCart}
+              onClick={handleCartClick}
               className="relative p-2 text-white/70 hover:text-white transition-colors"
               aria-label="购物车"
             >
@@ -143,13 +176,34 @@ export default function Header() {
           </Link>
           <button
             onClick={() => {
-              toggleCart();
+              handleCartClick();
               setMobileMenuOpen(false);
             }}
             className="text-brand-orange text-2xl font-display tracking-tight flex items-center gap-2"
           >
             购物车 {totalItems > 0 && `(${totalItems})`}
           </button>
+          {user ? (
+            <button
+              onClick={() => {
+                logout();
+                setMobileMenuOpen(false);
+              }}
+              className="text-white/50 text-lg font-display"
+            >
+              退出登录
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                openLoginModal();
+                setMobileMenuOpen(false);
+              }}
+              className="text-white text-lg font-display"
+            >
+              登录 / 注册
+            </button>
+          )}
         </div>
       )}
     </>

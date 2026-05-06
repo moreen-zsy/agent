@@ -11,6 +11,7 @@ export default defineConfig({
     port: 3000,
   },
   resolve: {
+    dedupe: ['react', 'react-dom'],
     alias: [
       // clarinet (via @ag-ui/a2ui-middleware) does `require('stream').Stream`
       // at module init; without a browser shim it resolves to undefined.

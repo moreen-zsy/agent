@@ -1,6 +1,6 @@
 import { foodDb } from '../db/food/index.js';
 import { dishes, orders } from '../db/food/schema.js';
-import { eq, like, count, and } from 'drizzle-orm';
+import { eq, like, count, and, or } from 'drizzle-orm';
 
 export interface PaginationParams {
   page?: number;
@@ -27,7 +27,10 @@ export async function getMenu(category?: string, search?: string, pagination?: P
     conditions.push(eq(dishes.category, category));
   }
   if (search) {
-    conditions.push(like(dishes.name, `%${search}%`));
+    conditions.push(or(
+      like(dishes.name, `%${search}%`),
+      like(dishes.description, `%${search}%`)
+    ));
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

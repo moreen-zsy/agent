@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Minus, Search, Star, Leaf, ChefHat, CakeSlice, Wine, LayoutGrid, X } from 'lucide-react';
-import { dishes, categories } from '@/data/dishes';
+import { Plus, Minus, Search, Star, Leaf, ChefHat, CakeSlice, Wine, LayoutGrid, X, Loader2 } from 'lucide-react';
+import { categories } from '@/data/dishes';
 import { useCart } from '@/context/CartContext';
+import { api } from '@/api';
 import type { Dish } from '@/types';
 import gsap from 'gsap';
 
@@ -246,16 +247,49 @@ export default function Order() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
+  const [dishes, setDishes] = useState<Dish[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
-  const filteredDishes = dishes.filter(dish => {
-    const matchCategory = activeCategory === 'all' || dish.category === activeCategory;
-    const matchSearch = !searchQuery ||
-      dish.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      dish.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchCategory && matchSearch;
-  });
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    api.food.menu
+      .get({
+        category: activeCategory === 'all' ? undefined : activeCategory,
+        search: searchQuery || undefined,
+      })
+      .then((result) => {
+        if (result.data) {
+          setDishes(
+            result.data.map((dish: unknown) => {
+              const d = dish as Record<string, unknown>;
+              return {
+                id: String(d.id),
+                name: String(d.name),
+                description: String(d.description),
+                fullDescription: d.fullDescription ? String(d.fullDescription) : undefined,
+                price: parseFloat(String(d.price)),
+                image: d.image ? String(d.image) : '',
+                category: String(d.category) as Dish['category'],
+                tags: Array.isArray(d.tags) ? d.tags.map(String) : undefined,
+                ingredients: Array.isArray(d.ingredients) ? d.ingredients.map(String) : undefined,
+                available: d.available === null ? undefined : Boolean(d.available),
+              };
+            })
+          );
+        } else {
+          setError('加载菜单失败');
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setError('网络错误，请稍后重试');
+        setLoading(false);
+      });
+  }, [activeCategory, searchQuery]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -341,7 +375,22 @@ export default function Order() {
       {/* Dish Grid */}
       <div className="px-6 lg:px-12 pb-24">
         <div className="max-w-7xl mx-auto">
-          {filteredDishes.length === 0 ? (
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <Loader2 className="w-10 h-10 text-brand-orange animate-spin" />
+              <p className="text-white/30 font-display text-sm mt-4">加载菜单中...</p>
+            </div>
+          ) : error ? (
+            <div className="text-center py-20">
+              <p className="text-white/30 font-display text-lg">{error}</p>
+              <button
+                onClick={() => { setActiveCategory('all'); setSearchQuery(''); }}
+                className="mt-4 text-brand-orange text-sm font-display hover:underline"
+              >
+                重新加载
+              </button>
+            </div>
+          ) : dishes.length === 0 ? (
             <div className="text-center py-20">
               <p className="text-white/30 font-display text-lg">没有找到匹配的菜品</p>
               <button
@@ -353,7 +402,7 @@ export default function Order() {
             </div>
           ) : (
             <div ref={gridRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-              {filteredDishes.map((dish, index) => (
+              {dishes.map((dish, index) => (
                 <div key={dish.id} className="dish-card-wrapper">
                   <div onClick={() => setSelectedDish(dish)} className="cursor-pointer">
                     <DishCard dish={dish} index={index} />
