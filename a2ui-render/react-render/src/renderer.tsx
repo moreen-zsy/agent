@@ -3,10 +3,9 @@
  * 将 A2UI VNode 树渲染为 React DOM
  */
 
-import { useMemo, type ReactNode } from 'react';
-import type { A2UIStore, VNode } from '@a2ui/core';
+import { type ReactNode } from 'react';
+import type { A2UIStore } from '@a2ui/core';
 import { useA2UI } from './hooks/useA2UI.js';
-import { useCatalog } from './hooks/useCatalog.js';
 import { VNodeRenderer } from './VNodeRenderer.js';
 
 export interface A2UIRendererProps {

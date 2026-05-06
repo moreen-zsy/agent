@@ -24,12 +24,13 @@
     "lint": "bun --filter '*' lint"
   },
   "devDependencies": {
-    "typescript": "catalog:",
     "@types/bun": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "vitest": "catalog:",
-    "prettier": "catalog:"
+    "prettier": "catalog:",
+    "typescript": "catalog:",
+    "vite-plugin-node-polyfills": "^0.26.0",
+    "vitest": "catalog:"
   },
   "catalog": {
     "typescript": "^5.9.3",

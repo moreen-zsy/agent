@@ -72,7 +72,7 @@ export interface StoreAdapterConfig {
  * zustand/vanilla 是框架无关的，不依赖 React。
  */
 export function createZustandNotifier(): A2UIStoreNotifier {
-  const store = createStore<{ version: number }>((set) => ({
+  const store = createStore<{ version: number }>(() => ({
     version: 0,
   }));
 

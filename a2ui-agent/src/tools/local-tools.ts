@@ -17,13 +17,31 @@ export function buildBusinessTools(appType: AppType) {
 // 点餐工具
 const foodTools = {
   query_menu: tool({
-    description: '查询菜单，支持按分类筛选或搜索',
+    description: '查询菜单，支持按分类筛选或搜索关键词',
     inputSchema: z.object({
       category: z.enum(['signature', 'main', 'dessert', 'drink', 'appetizer']).optional(),
       search: z.string().optional(),
     }),
     execute: async ({ category, search }) => {
-      return { category, search, items: [] };
+      try {
+        const params = new URLSearchParams();
+        if (category) params.set('category', category);
+        if (search) params.set('search', search);
+        const qs = params.toString();
+        const res = await fetch(`http://localhost:3000/api/food/menu${qs ? `?${qs}` : ''}`);
+        const data = await res.json();
+        return {
+          success: true,
+          items: data.data || [],
+          total: data.pagination?.total || 0,
+        };
+      } catch (err) {
+        return {
+          success: false,
+          error: String(err),
+          items: [],
+        };
+      }
     },
   }),
 

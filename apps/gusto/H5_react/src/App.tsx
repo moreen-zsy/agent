@@ -7,6 +7,7 @@ import { ChatPanel } from '@/components/ChatPanel'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import Home from './pages/Home'
 import Order from './pages/Order'
+import AiOrder from './pages/AiOrder'
 
 function OrderGuard() {
   const { user, openLoginModal } = useAuth();
@@ -30,6 +31,7 @@ function AppContent() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/order" element={<OrderGuard />} />
+        <Route path="/ai-order" element={<AiOrder />} />
       </Routes>
       <ChatPanel />
       <LoginModal open={isLoginModalOpen} onClose={closeLoginModal} />

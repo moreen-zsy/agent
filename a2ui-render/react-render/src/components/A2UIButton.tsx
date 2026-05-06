@@ -4,7 +4,6 @@
  * action.event.context: Record<string, DynamicValue>
  */
 
-import { type ReactNode } from 'react';
 import type { A2UIComponentProps } from './types.js';
 
 export interface ButtonProps extends A2UIComponentProps {
@@ -41,11 +40,11 @@ export function A2UIButton({ variant = 'default', action, children, _store, _sur
   };
 
   const baseClass = 'px-4 py-2 rounded font-medium transition-colors';
-  let variantClass = 'bg-gray-200 text-gray-800 hover:bg-gray-300';
+  let variantClass = 'bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-white/10 dark:text-white dark:hover:bg-white/20';
   if (variant === 'primary') {
-    variantClass = 'bg-blue-600 text-white hover:bg-blue-700';
+    variantClass = 'bg-blue-600 text-white hover:bg-blue-700 dark:bg-[#FF6B35] dark:hover:bg-[#FF6B35]/90';
   } else if (variant === 'borderless') {
-    variantClass = 'bg-transparent text-gray-700 hover:bg-gray-100';
+    variantClass = 'bg-transparent text-gray-700 hover:bg-gray-100 dark:text-white/70 dark:hover:bg-white/5';
   }
 
   return (

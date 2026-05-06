@@ -11,7 +11,7 @@ export default function Header() {
   const { user, logout, openLoginModal } = useAuth();
   const location = useLocation();
 
-  const isOrderPage = location.pathname === '/order';
+  const isOrderPage = location.pathname === '/order' || location.pathname === '/ai-order';
 
   useEffect(() => {
     const handleScroll = () => {
@@ -68,10 +68,25 @@ export default function Header() {
                 </Link>
                 <Link
                   to="/order"
-                  className="text-brand-orange text-xs uppercase tracking-widest font-display transition-colors relative group"
+                  className={`text-xs uppercase tracking-widest font-display transition-colors relative group ${
+                    location.pathname === '/order' ? 'text-brand-orange' : 'text-white/70 hover:text-white'
+                  }`}
                 >
                   甄选美味
-                  <span className="absolute -bottom-1 left-0 w-full h-0.5 bg-brand-orange" />
+                  <span className={`absolute -bottom-1 left-0 h-0.5 bg-brand-orange transition-all duration-300 ${
+                    location.pathname === '/order' ? 'w-full' : 'w-0 group-hover:w-full'
+                  }`} />
+                </Link>
+                <Link
+                  to="/ai-order"
+                  className={`text-xs uppercase tracking-widest font-display transition-colors relative group ${
+                    location.pathname === '/ai-order' ? 'text-brand-orange' : 'text-white/70 hover:text-white'
+                  }`}
+                >
+                  AI 点餐
+                  <span className={`absolute -bottom-1 left-0 h-0.5 bg-brand-orange transition-all duration-300 ${
+                    location.pathname === '/ai-order' ? 'w-full' : 'w-0 group-hover:w-full'
+                  }`} />
                 </Link>
               </>
             ) : (
@@ -173,6 +188,13 @@ export default function Header() {
             className="text-white text-2xl font-display tracking-tight"
           >
             甄选美味
+          </Link>
+          <Link
+            to="/ai-order"
+            onClick={() => setMobileMenuOpen(false)}
+            className="text-white text-2xl font-display tracking-tight"
+          >
+            AI 点餐
           </Link>
           <button
             onClick={() => {

@@ -19,7 +19,8 @@
     "zod": "catalog:",
     "drizzle-orm": "catalog:server",
     "postgres": "catalog:server",
-    "jose": "catalog:"
+    "jose": "catalog:",
+    "dotenv": "catalog:"
   },
   "devDependencies": {
     "typescript": "catalog:",

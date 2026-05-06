@@ -11,6 +11,10 @@
   "dependencies": {
     "@a2ui/core": "workspace:*",
     "@a2ui/react-render": "workspace:*",
+    "@ag-ui/client": "catalog:agui",
+    "@ag-ui/core": "catalog:agui",
+    "@ag-ui/a2ui-middleware": "catalog:agui",
+    "lucide-react": "catalog:react",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

@@ -16,15 +16,36 @@ import { randomUUID } from '@ag-ui/client';
 import { streamAgent } from '../services/agent-service.js';
 
 const agentBodySchema = z.object({
+  threadId: z.string().optional(),
+  runId: z.string().optional(),
   messages: z.array(z.object({
     id: z.string().optional(),
     role: z.enum(['user', 'assistant', 'system', 'tool', 'developer']),
     content: z.string().optional(),
   })),
   forwardedProps: z.record(z.string(), z.any()).optional(),
-  context: z.record(z.string(), z.any()).optional(),
-  tools: z.record(z.string(), z.any()).optional(),
+  context: z.union([
+    z.record(z.string(), z.any()),
+    z.array(z.object({ value: z.string(), description: z.string() })),
+  ]).optional(),
+  tools: z.union([
+    z.record(z.string(), z.any()),
+    z.array(z.record(z.string(), z.any())),
+  ]).optional(),
 });
+
+/** 将 AGUI 数组格式的 tools 转换为 AI SDK 所需的 record 格式 */
+function normalizeTools(
+  tools: Record<string, any> | Array<Record<string, any>> | undefined,
+): Record<string, any> {
+  if (!tools) return {};
+  if (Array.isArray(tools)) {
+    return Object.fromEntries(
+      tools.filter((t) => t && typeof t === 'object' && t.name).map((t) => [t.name, t]),
+    );
+  }
+  return tools;
+}
 
 export const agentRoutes = new Elysia({ prefix: '/api/agent' })
   .post('/stream', async ({ body, request, set }) => {
@@ -55,7 +76,7 @@ export const agentRoutes = new Elysia({ prefix: '/api/agent' })
             appType: appType as 'food' | 'campus',
             forwardedProps: parsed.forwardedProps,
             context: parsed.context,
-            tools: parsed.tools,
+            tools: normalizeTools(parsed.tools) as any,
           });
 
           for await (const event of agentStream) {

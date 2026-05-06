@@ -5,7 +5,7 @@
  */
 
 import { type ReactNode, memo, useMemo, useSyncExternalStore } from 'react';
-import type { A2UIStore, VNode, DynamicValue } from '@a2ui/core';
+import type { A2UIStore, VNode } from '@a2ui/core';
 import { TreeBuilder } from '@a2ui/core';
 import { useCatalog } from './hooks/useCatalog.js';
 import { A2UIElementErrorBoundary } from './components/A2UIElementErrorBoundary.js';

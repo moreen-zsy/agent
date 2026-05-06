@@ -3,6 +3,10 @@
  * Elysia + SSE + REST API + 认证
  */
 
+import { resolve } from 'path';
+import dotenv from 'dotenv';
+dotenv.config({ path: resolve(import.meta.dirname, '../../.env') });
+
 import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import { swagger } from '@elysiajs/swagger';
@@ -44,6 +48,7 @@ const app = new Elysia()
 app.listen(config.PORT, () => {
   console.log(`🚀 A2UI Server running at http://localhost:${config.PORT}`);
   console.log(`📚 Swagger UI at http://localhost:${config.PORT}/swagger`);
+  console.log(`🔑 KIMI_API_KEY loaded: ${!!process.env.KIMI_API_KEY}`);
 });
 
 export type App = typeof app;

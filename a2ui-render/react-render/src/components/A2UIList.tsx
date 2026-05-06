@@ -3,7 +3,6 @@
  * 支持 explicitList（静态）和 template（动态列表）
  */
 
-import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import type { A2UIStore } from '@a2ui/core';
 import { TreeBuilder } from '@a2ui/core';
@@ -34,8 +33,6 @@ export function A2UIList({
   children,
   direction = 'vertical',
   alignment = 'stretch',
-  _store,
-  _surfaceId,
 }: ListProps) {
   const dirClass = DIR_CLASS[direction] || 'flex-col';
   const alignClass = ALIGN_MAP[alignment] || 'items-stretch';
@@ -64,7 +61,7 @@ export function buildTemplateChildren(
   const template = components.get(componentId);
   if (!template) return [];
 
-  return data.map((item: any, index: number) => {
+  return data.map((_item: any, index: number) => {
     const id = `${componentId}-${index}`;
     const vnode = TreeBuilder.build(
       new Map([[id, { ...template, id }], ...components]),
