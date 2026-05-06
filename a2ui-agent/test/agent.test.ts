@@ -7,17 +7,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // 为测试提供假的环境变量
 process.env.KIMI_API_KEY = 'test-api-key';
+process.env.VITEST = 'true';
 import { EventType } from '@ag-ui/core';
 import type { AgentInput } from '../src/types.js';
 
-// 部分 mock ai 模块，保留 tool 导出，替换 streamText
-vi.mock('ai', async () => {
-  const actual = await vi.importActual<typeof import('ai')>('ai');
-  return {
-    ...actual,
-    streamText: vi.fn(),
-  };
-});
+// Mock ai 模块
+vi.mock('ai', () => ({
+  streamText: vi.fn(),
+  tool: vi.fn((config: any) => config),
+}));
 
 // Mock @ai-sdk/anthropic
 vi.mock('@ai-sdk/anthropic', () => ({
@@ -49,20 +47,15 @@ async function collectEvents(generator: AsyncGenerator<any>) {
   return events;
 }
 
-describe('runAgentStream', () => {
-  // 动态导入被测函数（确保 mock 先生效）
-  let runAgentStream: typeof import('../src/engine/agent.js').runAgentStream;
+import { runAgentStream } from '../src/engine/agent.js';
 
-  beforeEach(async () => {
+describe('runAgentStream', () => {
+  beforeEach(() => {
     vi.clearAllMocks();
-    // 清除模块缓存，确保每次都能应用新的 mock
-    vi.resetModules();
-    const mod = await import('../src/engine/agent.js');
-    runAgentStream = mod.runAgentStream;
   });
 
   it('should yield RUN_STARTED and RUN_FINISHED events', async () => {
-    vi.mocked(streamText).mockResolvedValue(mockStream([]) as any);
+    (streamText as any).mockResolvedValue(mockStream([]) as any);
 
     const input: AgentInput = {
       messages: [{ id: '1', role: 'user', content: 'Hello' }],
@@ -77,7 +70,7 @@ describe('runAgentStream', () => {
 
   it('should convert AGUI array context to system prompt', async () => {
     const streamTextMock = vi.fn().mockResolvedValue(mockStream([]) as any);
-    vi.mocked(streamText).mockImplementation(streamTextMock);
+    (streamText as any).mockImplementation(streamTextMock);
 
     const input: AgentInput = {
       messages: [{ id: '1', role: 'user', content: 'Hi' }],
@@ -97,7 +90,7 @@ describe('runAgentStream', () => {
 
   it('should convert Record context to system prompt', async () => {
     const streamTextMock = vi.fn().mockResolvedValue(mockStream([]) as any);
-    vi.mocked(streamText).mockImplementation(streamTextMock);
+    (streamText as any).mockImplementation(streamTextMock);
 
     const input: AgentInput = {
       messages: [{ id: '1', role: 'user', content: 'Hi' }],
@@ -117,7 +110,7 @@ describe('runAgentStream', () => {
 
   it('should merge middlewareTools and businessTools', async () => {
     const streamTextMock = vi.fn().mockResolvedValue(mockStream([]) as any);
-    vi.mocked(streamText).mockImplementation(streamTextMock);
+    (streamText as any).mockImplementation(streamTextMock);
 
     const customTool = { name: 'custom_tool', execute: async () => 'ok' };
     const input: AgentInput = {
@@ -135,7 +128,7 @@ describe('runAgentStream', () => {
 
   it('should handle forwardedProps userAction', async () => {
     const streamTextMock = vi.fn().mockResolvedValue(mockStream([]) as any);
-    vi.mocked(streamText).mockImplementation(streamTextMock);
+    (streamText as any).mockImplementation(streamTextMock);
 
     const input: AgentInput = {
       messages: [{ id: '1', role: 'user', content: 'Hi' }],
@@ -163,7 +156,7 @@ describe('runAgentStream', () => {
   });
 
   it('should yield text-delta as TEXT_MESSAGE_CONTENT events', async () => {
-    vi.mocked(streamText).mockResolvedValue(
+    (streamText as any).mockResolvedValue(
       mockStream([
         { type: 'text-delta', text: 'Hello' },
         { type: 'text-delta', text: ' World' },
@@ -184,7 +177,7 @@ describe('runAgentStream', () => {
   });
 
   it('should yield tool-call as TOOL_CALL_START events', async () => {
-    vi.mocked(streamText).mockResolvedValue(
+    (streamText as any).mockResolvedValue(
       mockStream([
         { type: 'tool-call', toolName: 'render_a2ui', toolCallId: 'tc-1' },
       ]) as any,
@@ -203,7 +196,7 @@ describe('runAgentStream', () => {
   });
 
   it('should handle streamText errors gracefully', async () => {
-    vi.mocked(streamText).mockRejectedValue(new Error('LLM timeout'));
+    (streamText as any).mockRejectedValue(new Error('LLM timeout'));
 
     const input: AgentInput = {
       messages: [{ id: '1', role: 'user', content: 'Hi' }],

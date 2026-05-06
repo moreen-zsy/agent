@@ -24,4 +24,5 @@ export type {
 
 export type { AgentInput, AppType } from './types.js';
 export { runAgentStream } from './engine/agent.js';
-export { buildBusinessTools } from './tools/local-tools.js';
+export { buildBusinessTools } from './tools/mcp-tools.js';
+export { buildBusinessTools as buildLocalTools } from './tools/local-tools.js';

@@ -7,7 +7,7 @@
 import { streamText, type ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { AgentInput } from "../types.js";
-import { buildBusinessTools } from "../tools/local-tools.js";
+import { buildBusinessTools } from "../tools/mcp-tools.js";
 import type { BaseEvent } from "@ag-ui/core";
 import { EventType } from "@ag-ui/core";
 import { randomUUID } from "@ag-ui/client";
@@ -82,8 +82,8 @@ export async function* runAgentStream(
     ? `你是智能助手，帮助用户完成任务。\n\n${contextEntries}`
     : "你是智能助手，帮助用户完成任务。";
 
-  // 合并工具：中间件注入的工具 + 业务工具
-  const businessTools = buildBusinessTools(input.appType);
+  // 合并工具：中间件注入的工具 + 业务工具（通过 MCP 获取）
+  const mcp = await buildBusinessTools(input.appType);
   const middlewareTools = input.tools || {};
 
   try {
@@ -93,7 +93,7 @@ export async function* runAgentStream(
       messages: coreMessages,
       tools: {
         ...middlewareTools,
-        ...businessTools,
+        ...mcp.tools,
       } as any,
     });
 
@@ -142,6 +142,8 @@ export async function* runAgentStream(
       messageId: randomUUID(),
       message: String(err),
     };
+  } finally {
+    await mcp.close();
   }
 
   // RUN_FINISHED

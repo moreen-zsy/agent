@@ -22,22 +22,39 @@ v0.9 相比 v0.8 的关键改进：
 
 ```
 客户端（Client）                                                服务端（Server）
-┌─────────────────────────────────────────────────┐            ┌─────────────────────┐
-│  HttpAgent + A2UIMiddleware                     │            │                     │
-│         ↓ 注入 schema + render_a2ui tool         │   AGUI    │  ┌──────────────┐   │
-│         ↓ HTTP/SSE 流式传输                      │ ◄──────► │  │ a2ui-server  │   │
-│  ┌──────────┐    ┌──────────┐   ┌──────────┐   │  事件流   │  │ Elysia 路由   │   │
-│  │a2ui-core │───▶│a2ui-render│──▶│   DOM    │   │            │  └──────┬───────┘   │
-│  │协议解析   │    │ 组件渲染  │   │          │   │            │         ↓           │
-│  │状态管理   │    │          │   │          │   │            │  ┌──────────────┐   │
-│  │树构建    │    └──────────┘   └──────────┘   │            │  │ a2ui-agent   │   │
-│  │增量更新   │                                 │            │  │ 纯 LLM 代理   │   │
-│  └──────────┘                                 │            │  │ 转发 tools/   │   │
-│       ↑                                       │            │  │ context/messages│  │
-│  ┌──────────┐                                 │            │  └──────────────┘   │
-│  │ 业务应用  │  apps/campus-web                │            │                     │
-│  └──────────┘                                 │            └─────────────────────┘
-└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐            ┌─────────────────────────┐
+│  HttpAgent + A2UIMiddleware                     │            │                         │
+│         ↓ 注入 schema + render_a2ui tool         │   AGUI    │  ┌──────────────────┐   │
+│         ↓ HTTP/SSE 流式传输                      │ ◄──────► │  │   a2ui-server    │   │
+│  ┌──────────┐    ┌──────────┐   ┌──────────┐   │  事件流   │  │  Elysia 路由      │   │
+│  │a2ui-core │───▶│a2ui-render│──▶│   DOM    │   │            │  └────────┬─────────┘   │
+│  │协议解析   │    │ 组件渲染  │   │          │   │            │           ↓             │
+│  │状态管理   │    │          │   │          │   │            │  ┌──────────────────┐   │
+│  │树构建    │    └──────────┘   └──────────┘   │            │  │   a2ui-agent     │   │
+│  │增量更新   │                                 │            │  │  纯 LLM 代理      │   │
+│  └──────────┘                                 │            │  │  streamText +    │   │
+│       ↑                                       │            │  │  buildBusinessTools│  │
+│  ┌──────────┐                                 │            │  └────────┬─────────┘   │
+│  │ 业务应用  │  apps/campus-web                │            │           ↓             │
+│  └──────────┘                                 │            │  ┌──────────────────┐   │
+└─────────────────────────────────────────────────┘            │  │   MCP Clients    │   │
+                                                               │  │  createMCPClient │   │
+                                                               │  │  + StdioTransport│   │
+                                                               │  └────────┬─────────┘   │
+                                                               │           ↓             │
+                                                               │  ┌──────────────────┐   │
+                                                               │  │   MCP Servers    │   │
+                                                               │  │ ┌─────┐ ┌─────┐  │   │
+                                                               │  │ │food │ │campus│  │   │
+                                                               │  │ │-mcp │ │ -mcp │  │   │
+                                                               │  │ └──┬──┘ └──┬──┘  │   │
+                                                               │  └────┼─────┼──────┘   │
+                                                               │       ↓     ↓          │
+                                                               │  ┌──────────────────┐   │
+                                                               │  │ a2ui-server REST │   │
+                                                               │  │     API          │   │
+                                                               │  └──────────────────┘   │
+                                                               └─────────────────────────┘
 ```
 
 **分层说明：**
@@ -49,10 +66,13 @@ v0.9 相比 v0.8 的关键改进：
 | `a2ui-core`   | **客户端** | 协议层：v0.9 协议解析、状态管理、树构建、增量更新           |
 | `a2ui-render` | **客户端** | 视图层：将 v0.9 协议树渲染为 React / Vue 组件               |
 | `@ag-ui/*`    | 客户端     | AGUI 生态：HttpAgent 传输、A2UIMiddleware 协议转换          |
+| **MCP Client**| 服务端     | `@ai-sdk/mcp` `createMCPClient` + `StdioClientTransport`   |
+| **MCP Server**| 服务端     | `food-mcp` / `campus-mcp`：业务工具封装，调用 REST API      |
 
 - **服务端极简**：a2ui-agent 不再手动定义 `render_a2ui` tool 或构建 prompt，所有 A2UI 逻辑由客户端 A2UIMiddleware 处理
 - **客户端自治**：中间件自动注入 v0.9 schema、拦截 tool call、渐进式解析 JSON、emit ACTIVITY_SNAPSHOT
 - `core` 与 `render` 解耦：`core` 纯 TypeScript 不依赖框架
+- **MCP 工具链**：业务工具通过 MCP Server 实现，Agent Engine 通过 MCP Client 动态获取，支持工具热更新和多领域隔离
 
 ## 目录结构
 
@@ -61,8 +81,16 @@ d:/agent/
 ├── a2ui-agent/              # @a2ui/agent — LLM 代理（纯转发）
 │   ├── src/
 │   │   ├── engine/          # streamText 调用 + 业务工具注入
-│   │   ├── tools/           # 业务工具定义（buildBusinessTools）
+│   │   ├── tools/           # 业务工具定义
+│   │   │   ├── mcp-tools.ts     # MCP 工具构建器（createMCPClient）
+│   │   │   └── local-tools.ts   # 本地 mock 工具（测试回退）
+│   │   ├── mcp-client.ts  # 独立 MCP CLI 客户端（调试/演示）
 │   │   └── types.ts         # AgentInput 类型
+│   ├── mcp/                 # MCP Servers（业务领域隔离）
+│   │   ├── food-mcp/        # 点餐领域 MCP Server
+│   │   │   └── src/index.ts # 7 个工具（菜单/订单管理）
+│   │   └── campus-mcp/      # 校园领域 MCP Server
+│   │       └── src/index.ts # 8 个工具（设施/预约/缴费）
 │   ├── package.json
 │   └── tsconfig.json
 │
@@ -126,6 +154,7 @@ d:/agent/
 | 服务端      | Elysia                                               | 高性能 Bun 服务端框架        |
 | Agent SDK   | ai / @ai-sdk/openai                                  | LLM 调用和流式处理           |
 | AGUI 生态   | @ag-ui/client / @ag-ui/a2ui-middleware / @ag-ui/core | 标准化传输层 + A2UI 协议转换 |
+| MCP         | @ai-sdk/mcp / @modelcontextprotocol/sdk              | MCP Client + MCP Server 实现 |
 | Schema 验证 | Zod                                                  | 运行时类型安全               |
 | 测试        | Vitest                                               | 单元测试                     |
 
@@ -184,6 +213,85 @@ d:/agent/
 5. **流式友好**：支持增量解析和增量渲染，无需等待完整数据
 6. **类型安全**：完整的 TypeScript 类型定义 + Zod 运行时校验
 7. **跨端一致**：同一份 v0.9 协议可渲染到 Web、Vue、小程序
+
+## MCP 工具链架构
+
+A2UI Agent 引擎通过 **MCP (Model Context Protocol)** 获取业务工具，替代硬编码的本地 mock 工具，实现业务逻辑与 Agent 引擎的彻底解耦。
+
+### 调用链路
+
+```
+用户请求
+    ↓
+POST /api/agent/stream (a2ui-server)
+    ↓
+runAgentStream() (a2ui-agent/engine)
+    ↓
+buildBusinessTools() (a2ui-agent/tools/mcp-tools.ts)
+    ↓
+createMCPClient + StdioClientTransport
+    ↓ 启动子进程
+bun run food-mcp/src/index.ts  (或 campus-mcp)
+    ↓ stdio 协议
+MCP Server (McpServer + StdioServerTransport)
+    ↓ HTTP
+a2ui-server REST API (/api/food/*, /api/campus/*)
+    ↓
+数据库 (postgres)
+```
+
+### 关键实现
+
+**1. MCP Client（`a2ui-agent/src/tools/mcp-tools.ts`）**
+
+```typescript
+const client = await createMCPClient({
+  transport: new StdioClientTransport({
+    command: "bun",
+    args: ["run", "mcp/food-mcp/src/index.ts"],
+    env: { A2UI_API_BASE: "http://localhost:3000" },
+  }),
+});
+const tools = await client.tools();  // ToolSet，直接传给 streamText
+```
+
+- **生命周期管理**：`runAgentStream` 使用 `try...finally` 确保每次请求后 `await mcp.close()`，避免子进程泄漏
+- **环境自适应**：测试环境（`VITEST`）自动回退到 `local-tools.ts`
+- **降级保护**：MCP 连接失败时回退到本地工具，不阻塞服务
+
+**2. MCP Server（`a2ui-agent/mcp/*-mcp/src/index.ts`）**
+
+| 领域 | 工具数 | 公开工具 | 需认证工具 |
+|------|--------|----------|------------|
+| `food-mcp` | 7 | `query_menu`, `get_dish_detail` | `place_order`, `get_orders`, `get_order_detail`, `update_order_status`, `cancel_order` |
+| `campus-mcp` | 8 | `query_facilities`, `get_facility_detail` | `book_facility`, `get_reservations`, `update_reservation`, `cancel_reservation`, `pay_fee`, `query_payments`, `update_payment` |
+
+MCP Server 通过 `A2UI_API_BASE` 环境变量调用 a2ui-server 的 REST API，认证工具需传入 `token` 参数（JWT）。
+
+**3. 独立 CLI 客户端（`a2ui-agent/src/mcp-client.ts`）**
+
+用于本地调试 MCP 工具链，支持多 MCP 同时连接：
+
+```bash
+bun run a2ui-agent/src/mcp-client.ts
+```
+
+功能：
+- 同时连接 `food-mcp` 和 `campus-mcp`
+- 同名工具自动加前缀（`food__auth_login`, `campus__auth_login`）
+- 使用 `generateText` + `stopWhen: stepCountIs(8)` 限制推理轮数
+
+### 与本地工具的区别
+
+| 特性 | `local-tools.ts`（旧） | MCP Server（新） |
+|------|------------------------|------------------|
+| 工具定义位置 | a2ui-agent 内部 | 独立 MCP Server 进程 |
+| 与后端 API 关系 | 直接 `fetch()` localhost:3000 | 通过 MCP stdio 协议调用 |
+| 工具数量 | food 4 个 / campus 4 个 | food 7 个 / campus 8 个 |
+| JWT 认证 | 无 | 完整支持（token 参数） |
+| LLM 可见 schema | 简单 description | Zod schema 自动生成 JSON Schema |
+| 热更新 | 需重启 server | MCP Server 独立部署即可更新 |
+| 适用场景 | 测试 / 开发回退 | 生产环境 |
 
 ## A2UI v0.9 协议速览
 
