@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Playground } from './components/Playground.js';
 import { AgentTest } from './components/AgentTest.js';
+import { AuthProvider } from './context/AuthContext.js';
 import { FlaskConical, Bot, Code2 } from 'lucide-react';
 
 type Tab = 'jsonl' | 'agent';
@@ -9,7 +10,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('jsonl');
 
   return (
-    <div className="h-screen flex flex-col">
+    <AuthProvider>
+      <div className="h-screen flex flex-col">
       {/* 顶部导航 */}
       <nav className="bg-gray-900 text-white flex items-center px-4 h-12 shrink-0">
         <div className="flex items-center gap-2 mr-8">
@@ -49,5 +51,6 @@ export default function App() {
         {activeTab === 'agent' && <AgentTest />}
       </main>
     </div>
+    </AuthProvider>
   );
 }

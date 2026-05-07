@@ -3,9 +3,9 @@ import { z } from 'zod';
 const configSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.string().default('3000').transform(Number),
-  DATABASE_URL_CORE: z.string().default('postgresql://a2ui:a2ui_password@localhost:5432/a2ui_core'),
-  DATABASE_URL_FOOD: z.string().default('postgresql://a2ui:a2ui_password@localhost:5432/a2ui_food'),
-  DATABASE_URL_CAMPUS: z.string().default('postgresql://a2ui:a2ui_password@localhost:5432/a2ui_campus'),
+  DATABASE_URL_CORE: z.string().default('postgresql://a2ui:a2ui_password@localhost:5433/a2ui_core'),
+  DATABASE_URL_FOOD: z.string().default('postgresql://a2ui:a2ui_password@localhost:5433/a2ui_food'),
+  DATABASE_URL_CAMPUS: z.string().default('postgresql://a2ui:a2ui_password@localhost:5433/a2ui_campus'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   OPENAI_API_KEY: z.string().default('test-key'),
   JWT_SECRET: z.string().default('test-secret-for-development-only'),

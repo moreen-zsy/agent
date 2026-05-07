@@ -44,23 +44,34 @@ async function apiCall(path: string, options: ApiOptions = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-
-  const text = await res.text();
   try {
-    return JSON.parse(text);
-  } catch {
-    return { error: `非 JSON 响应 (${res.status})`, raw: text };
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: `非 JSON 响应 (${res.status})`, raw: text };
+    }
+  } catch (err) {
+    return { error: `请求失败: ${(err as Error).message}`, path: url.toString() };
   }
 }
 
 const ok = (data: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
 });
+
+// 从环境变量获取默认 token（由 Agent Engine 注入）
+const DEFAULT_TOKEN = process.env.JWT_TOKEN;
+
+function resolveToken(token?: string): string | undefined {
+  return token || DEFAULT_TOKEN;
+}
 
 // ───────────────────────────────────────────────────────────────
 // 2. 创建 McpServer
@@ -80,7 +91,7 @@ const server = new McpServer({
 server.registerTool(
   "query_facilities",
   {
-    description: "查询校园设施列表，支持按类型筛选、搜索、分页。",
+    description: "查询校园设施列表，支持按类型筛选、搜索、分页。获取数据后，必须调用 render_a2ui 工具将结果渲染为 A2UI v0.9 UI 组件。",
     inputSchema: {
       type: z
         .enum(["gym", "study_room", "lab"])
@@ -108,7 +119,7 @@ server.registerTool(
 server.registerTool(
   "get_facility_detail",
   {
-    description: "根据设施 ID 获取详情。",
+    description: "根据设施 ID 获取详情。获取数据后，必须调用 render_a2ui 工具将结果渲染为 A2UI v0.9 UI 组件。",
     inputSchema: {
       id: z.string().min(1).describe("设施 UUID"),
     },
@@ -137,14 +148,14 @@ server.registerTool(
         .string()
         .min(1)
         .describe("时间段，例如 09:00-11:00"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ facilityId, date, timeSlot, token }) => {
     const res = await apiCall("/api/campus/reservations", {
       method: "POST",
       body: { facilityId, date, timeSlot },
-      token,
+      token: resolveToken(token),
     });
     return ok(res);
   },
@@ -163,13 +174,13 @@ server.registerTool(
         .max(100)
         .optional()
         .describe("每页条数，默认 20"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ page, pageSize, token }) => {
     const res = await apiCall("/api/campus/reservations", {
       query: { page, pageSize },
-      token,
+      token: resolveToken(token),
     });
     return ok(res);
   },
@@ -184,7 +195,7 @@ server.registerTool(
       status: z
         .enum(["pending", "confirmed", "cancelled"])
         .describe("新状态"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ id, status, token }) => {
@@ -193,7 +204,7 @@ server.registerTool(
       {
         method: "PUT",
         body: { status },
-        token,
+        token: resolveToken(token),
       },
     );
     return ok(res);
@@ -206,7 +217,7 @@ server.registerTool(
     description: "取消/删除预约（仅创建者可操作）。需传入 JWT Token。",
     inputSchema: {
       id: z.string().min(1).describe("预约 UUID"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ id, token }) => {
@@ -214,7 +225,7 @@ server.registerTool(
       `/api/campus/reservations/${encodeURIComponent(id)}`,
       {
         method: "DELETE",
-        token,
+        token: resolveToken(token),
       },
     );
     return ok(res);
@@ -234,14 +245,14 @@ server.registerTool(
         .describe("费用类型"),
       amount: z.number().positive().describe("金额（元）"),
       description: z.string().optional().describe("缴费说明"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ type, amount, description, token }) => {
     const res = await apiCall("/api/campus/payments", {
       method: "POST",
       body: { type, amount, description },
-      token,
+      token: resolveToken(token),
     });
     return ok(res);
   },
@@ -264,13 +275,13 @@ server.registerTool(
         .enum(["tuition", "utility", "network"])
         .optional()
         .describe("按费用类型过滤"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ page, pageSize, type, token }) => {
     const res = await apiCall("/api/campus/payments", {
       query: { page, pageSize, type },
-      token,
+      token: resolveToken(token),
     });
     return ok(res);
   },
@@ -285,7 +296,7 @@ server.registerTool(
       status: z
         .enum(["pending", "paid", "failed"])
         .describe("新状态"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ id, status, token }) => {
@@ -294,7 +305,7 @@ server.registerTool(
       {
         method: "PUT",
         body: { status },
-        token,
+        token: resolveToken(token),
       },
     );
     return ok(res);

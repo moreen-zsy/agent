@@ -43,23 +43,34 @@ async function apiCall(path: string, options: ApiOptions = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-
-  const text = await res.text();
   try {
-    return JSON.parse(text);
-  } catch {
-    return { error: `非 JSON 响应 (${res.status})`, raw: text };
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: `非 JSON 响应 (${res.status})`, raw: text };
+    }
+  } catch (err) {
+    return { error: `请求失败: ${(err as Error).message}`, path: url.toString() };
   }
 }
 
 const ok = (data: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
 });
+
+// 从环境变量获取默认 token（由 Agent Engine 注入）
+const DEFAULT_TOKEN = process.env.JWT_TOKEN;
+
+function resolveToken(token?: string): string | undefined {
+  return token || DEFAULT_TOKEN;
+}
 
 // ───────────────────────────────────────────────────────────────
 // 2. 创建 McpServer
@@ -80,7 +91,7 @@ server.registerTool(
   "query_menu",
   {
     description:
-      "查询菜单列表，支持按分类筛选、关键词搜索、分页。无需登录。",
+      "查询菜单列表，支持按分类筛选、关键词搜索、分页。无需登录。获取数据后，必须调用 render_a2ui 工具将结果渲染为 A2UI v0.9 UI 组件。",
     inputSchema: {
       category: z
         .enum(["signature", "main", "dessert", "drink", "appetizer"])
@@ -108,7 +119,7 @@ server.registerTool(
 server.registerTool(
   "get_dish_detail",
   {
-    description: "根据菜品 ID 获取菜品详情。无需登录。",
+    description: "根据菜品 ID 获取菜品详情。无需登录。获取数据后，必须调用 render_a2ui 工具将结果渲染为 A2UI v0.9 UI 组件。",
     inputSchema: {
       id: z.string().min(1).describe("菜品 UUID"),
     },
@@ -138,14 +149,14 @@ server.registerTool(
         .min(1)
         .describe("订单菜品列表"),
       address: z.string().min(1).describe("配送地址"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ items, address, token }) => {
     const res = await apiCall("/api/food/order", {
       method: "POST",
       body: { items, address },
-      token,
+      token: resolveToken(token),
     });
     return ok(res);
   },
@@ -175,13 +186,13 @@ server.registerTool(
         ])
         .optional()
         .describe("按订单状态过滤"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ page, pageSize, status, token }) => {
     const res = await apiCall("/api/food/orders", {
       query: { page, pageSize, status },
-      token,
+      token: resolveToken(token),
     });
     return ok(res);
   },
@@ -193,12 +204,12 @@ server.registerTool(
     description: "获取单个订单详情。需传入 JWT Token。",
     inputSchema: {
       id: z.string().min(1).describe("订单 UUID"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ id, token }) => {
     const res = await apiCall(`/api/food/orders/${encodeURIComponent(id)}`, {
-      token,
+      token: resolveToken(token),
     });
     return ok(res);
   },
@@ -221,14 +232,14 @@ server.registerTool(
           "cancelled",
         ])
         .describe("新状态"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ id, status, token }) => {
     const res = await apiCall(`/api/food/orders/${encodeURIComponent(id)}`, {
       method: "PUT",
       body: { status },
-      token,
+      token: resolveToken(token),
     });
     return ok(res);
   },
@@ -241,13 +252,13 @@ server.registerTool(
       "删除订单（仅订单创建者可操作）。需传入 JWT Token。",
     inputSchema: {
       id: z.string().min(1).describe("订单 UUID"),
-      token: z.string().min(1).describe("JWT 认证 Token"),
+      token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
   async ({ id, token }) => {
     const res = await apiCall(`/api/food/orders/${encodeURIComponent(id)}`, {
       method: "DELETE",
-      token,
+      token: resolveToken(token),
     });
     return ok(res);
   },

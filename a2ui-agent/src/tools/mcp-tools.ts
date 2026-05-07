@@ -22,15 +22,20 @@ export interface McpToolSet {
 }
 
 /** 启动 MCP 服务器并获取工具 */
-async function spawnMcpClient(name: string, entry: string): Promise<McpToolSet> {
+async function spawnMcpClient(name: string, entry: string, token?: string): Promise<McpToolSet> {
+  const env: Record<string, string> = {
+    ...process.env,
+    A2UI_API_BASE: API_BASE,
+  };
+  if (token) {
+    env.JWT_TOKEN = token;
+  }
+
   const client = await createMCPClient({
     transport: new StdioClientTransport({
       command: "bun",
       args: ["run", entry],
-      env: {
-        ...process.env,
-        A2UI_API_BASE: API_BASE,
-      },
+      env,
     }),
   });
 
@@ -43,7 +48,11 @@ async function spawnMcpClient(name: string, entry: string): Promise<McpToolSet> 
   return {
     tools,
     close: async () => {
-      await client.close();
+      try {
+        await client.close();
+      } catch (err) {
+        console.error(`[a2ui-agent] ${name} client.close() error:`, err);
+      }
     },
   };
 }
@@ -53,7 +62,13 @@ async function spawnMcpClient(name: string, entry: string): Promise<McpToolSet> 
  * - 生产环境：通过 MCP 连接获取真实工具
  * - 测试环境：回退到本地 mock 工具（避免启动真实 MCP 进程）
  */
-export async function buildBusinessTools(appType: AppType): Promise<McpToolSet> {
+/**
+ * 根据 appType 构建业务工具集
+ * - 生产环境：通过 MCP 连接获取真实工具
+ * - 测试环境：回退到本地 mock 工具（避免启动真实 MCP 进程）
+ * @param token 用户 JWT Token，通过环境变量注入 MCP Server
+ */
+export async function buildBusinessTools(appType: AppType, token?: string): Promise<McpToolSet> {
   // 测试环境回退到本地工具
   if (process.env.VITEST || process.env.NODE_ENV === "test") {
     return {
@@ -65,7 +80,7 @@ export async function buildBusinessTools(appType: AppType): Promise<McpToolSet> 
   try {
     const entry = appType === "food" ? FOOD_MCP_ENTRY : CAMPUS_MCP_ENTRY;
     const name = appType === "food" ? "food-mcp" : "campus-mcp";
-    return await spawnMcpClient(name, entry);
+    return await spawnMcpClient(name, entry, token);
   } catch (err) {
     console.warn(
       `[a2ui-agent] MCP 连接失败，回退到本地工具: ${(err as Error).message}`,

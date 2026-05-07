@@ -15,6 +15,8 @@ import type { AgentInput } from '../src/types.js';
 vi.mock('ai', () => ({
   streamText: vi.fn(),
   tool: vi.fn((config: any) => config),
+  jsonSchema: vi.fn((schema: any) => ({ jsonSchema: schema })),
+  stepCountIs: vi.fn((count: number) => ({ stepCountIs: count })),
 }));
 
 // Mock @ai-sdk/anthropic
@@ -192,7 +194,7 @@ describe('runAgentStream', () => {
     const toolEvents = events.filter((e) => e.type === EventType.TOOL_CALL_START);
 
     expect(toolEvents).toHaveLength(1);
-    expect(toolEvents[0].toolName).toBe('render_a2ui');
+    expect(toolEvents[0].toolCallName).toBe('render_a2ui');
   });
 
   it('should handle streamText errors gracefully', async () => {

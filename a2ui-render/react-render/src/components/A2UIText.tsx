@@ -1,15 +1,18 @@
 /**
- * A2UI Text 组件
+ * A2UI Text 组件 (v0.9)
+ * 支持 variant: h1 | h2 | h3 | h4 | h5 | caption | body
+ * 兼容旧版 usageHint
  */
 
 import type { A2UIComponentProps } from './types.js';
 
 export interface TextProps extends A2UIComponentProps {
   text: string;
+  variant?: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'caption' | 'body';
   usageHint?: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'caption' | 'body';
 }
 
-const USAGE_HINT_MAP: Record<string, string> = {
+const VARIANT_MAP: Record<string, string> = {
   h1: 'text-3xl font-bold dark:text-white',
   h2: 'text-2xl font-bold dark:text-white',
   h3: 'text-xl font-semibold dark:text-white',
@@ -19,7 +22,8 @@ const USAGE_HINT_MAP: Record<string, string> = {
   body: 'text-base dark:text-white/90',
 };
 
-export function A2UIText({ text, usageHint = 'body' }: TextProps) {
-  const className = USAGE_HINT_MAP[usageHint] || USAGE_HINT_MAP.body;
+export function A2UIText({ text, variant, usageHint = 'body' }: TextProps) {
+  const styleKey = variant || usageHint;
+  const className = VARIANT_MAP[styleKey] || VARIANT_MAP.body;
   return <span className={className}>{text}</span>;
 }

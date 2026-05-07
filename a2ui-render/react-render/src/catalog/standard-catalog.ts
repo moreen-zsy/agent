@@ -25,6 +25,7 @@ import { A2UISpacer } from '../components/A2UISpacer.js';
 import { A2UIModal } from '../components/A2UIModal.js';
 import { A2UISwitch } from '../components/A2UISwitch.js';
 import { A2UIChip } from '../components/A2UIChip.js';
+import { A2UICarousel } from '../components/A2UICarousel.js';
 
 export type A2UIComponent = ComponentType<any>;
 
@@ -55,6 +56,7 @@ export const standardCatalog: Map<string, A2UIComponent> = new Map(
     ['Modal', A2UIModal],
     ['Switch', A2UISwitch],
     ['Chip', A2UIChip],
+    ['Carousel', A2UICarousel],
   ] as [string, A2UIComponent][]
 );
 

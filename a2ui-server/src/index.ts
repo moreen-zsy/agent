@@ -7,6 +7,14 @@ import { resolve } from 'path';
 import dotenv from 'dotenv';
 dotenv.config({ path: resolve(import.meta.dirname, '../../.env') });
 
+// 强制覆盖数据库端口（绕过 Bun 模块缓存）
+process.env.DATABASE_URL_CORE = process.env.DATABASE_URL_CORE?.replace(':5432/', ':5433/') || process.env.DATABASE_URL_CORE;
+process.env.DATABASE_URL_FOOD = process.env.DATABASE_URL_FOOD?.replace(':5432/', ':5433/') || process.env.DATABASE_URL_FOOD;
+process.env.DATABASE_URL_CAMPUS = process.env.DATABASE_URL_CAMPUS?.replace(':5432/', ':5433/') || process.env.DATABASE_URL_CAMPUS;
+
+console.log('[SERVER STARTUP] A2UI Server initializing...');
+console.log('[SERVER STARTUP] DB ports patched for 5433');
+
 import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import { swagger } from '@elysiajs/swagger';

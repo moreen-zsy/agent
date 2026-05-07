@@ -7,7 +7,9 @@ import { A2UIStore } from '@a2ui/core';
 import { A2UIRenderer } from '@a2ui/react-render';
 import { HttpAgent } from '@ag-ui/client';
 import { A2UIMiddleware } from '@ag-ui/a2ui-middleware';
-import { Send, Bot, User } from 'lucide-react';
+import { useAuth } from '../context/AuthContext.js';
+import { LoginModal } from './LoginModal.js';
+import { Send, Bot, User, LogIn, LogOut } from 'lucide-react';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -37,11 +39,14 @@ const A2UI_CATALOG_SCHEMA = {
     Spacer: { description: '占位空间' },
     Switch: { description: '开关' },
     Chip: { description: '标签芯片' },
+    Carousel: { description: '轮播图' },
   },
 };
 
 export function AgentTest() {
   const pendingUserActionRef = useRef<Record<string, any> | null>(null);
+  const { token, user, isLoggedIn, login, logout } = useAuth();
+  const [showLogin, setShowLogin] = useState(false);
 
   const [store] = useState(() => new A2UIStore({
     onUserAction: (action) => {
@@ -57,7 +62,15 @@ export function AgentTest() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const agent = useMemo(() => {
-    const httpAgent = new HttpAgent({ url: AGENT_URL });
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    const httpAgent = new HttpAgent({
+      url: AGENT_URL,
+      headers,
+      initialMessages: [],
+    });
     const middleware = new A2UIMiddleware({
       schema: A2UI_CATALOG_SCHEMA,
       injectA2UITool: true,
@@ -65,7 +78,7 @@ export function AgentTest() {
     });
     httpAgent.use(middleware);
     return httpAgent;
-  }, []);
+  }, [token]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -165,6 +178,26 @@ export function AgentTest() {
               <option value="food">点餐模式</option>
               <option value="campus">校园模式</option>
             </select>
+            {isLoggedIn ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-600">{user?.name}</span>
+                <button
+                  onClick={logout}
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-600 px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                >
+                  <LogOut className="w-3 h-3" />
+                  退出
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowLogin(true)}
+                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+              >
+                <LogIn className="w-3 h-3" />
+                登录
+              </button>
+            )}
           </div>
         </div>
 
@@ -246,6 +279,12 @@ export function AgentTest() {
           </div>
         </div>
       </div>
+
+      <LoginModal
+        isOpen={showLogin}
+        onClose={() => setShowLogin(false)}
+        onLogin={login}
+      />
     </div>
   );
 }

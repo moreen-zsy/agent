@@ -16,12 +16,15 @@
     "dev:core": "bun --filter @a2ui/core dev",
     "dev:react": "bun --filter @a2ui/react-render dev",
     "dev:playground": "bun --filter @a2ui/app-playground dev",
-    "dev:server": "bun --filter @a2ui/server dev",
+    "dev:server": "bun --filter @a2ui/server start",
     "dev": "bun dev:server & bun dev:playground",
     "build": "bun --filter './a2ui-agent' --filter './a2ui-core' --filter './a2ui-render/*' build",
     "test": "bun --filter './a2ui-agent' --filter './a2ui-core' --filter './a2ui-render/*' test",
     "typecheck": "bun --filter '*' typecheck",
-    "lint": "bun --filter '*' lint"
+    "lint": "bun --filter '*' lint",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f postgres"
   },
   "devDependencies": {
     "@types/bun": "catalog:",
