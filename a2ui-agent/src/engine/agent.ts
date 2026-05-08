@@ -279,10 +279,10 @@ export async function* runAgentStream(
 3. 不要直接调用 render_a2ui，始终通过 generate_a2ui 生成 UI
 4. 所有组件使用扁平格式，children 通过 ID 引用
 
-工具使用指引：
-- 查询数据（菜单、设施等）：先调用 query_* / get_* 业务工具获取数据
-- 渲染 UI：获取数据后，调用 generate_a2ui 工具（它会自动设计并生成合适的 A2UI v0.9 组件）
-- generate_a2ui 调用后，用 Markdown 格式详细说明界面功能、数据亮点和操作指引。支持使用标题、列表、加粗等 Markdown 语法丰富表达`;
+回答规范：
+- generate_a2ui 调用后，用 Markdown 格式直接介绍数据本身（如菜品特色、口感描述、推荐理由），严禁输出"界面功能说明""组件设计""功能模块"等元内容
+- 不要以表格形式罗列 UI 功能，直接输出自然语言描述
+- 回答内容必须是对用户问题的直接回应，而不是对界面设计的说明`;
 
   const systemPrompt = contextEntries
     ? `${a2uiDirective}\n\n${contextEntries}`
@@ -392,31 +392,13 @@ export async function* runAgentStream(
             };
 
             // 启动次级 LLM（在 tool-result 时等待完成）
-            // 把已收集的业务工具结果附加到 messages 中，让次级 LLM 能获取真实数据
-            const messagesWithToolResults = coreMessages.concat(
-              toolResultsForSubLLM.map((tr) => ({
-                role: "tool" as const,
-                content: [
-                  {
-                    type: "tool-result" as const,
-                    toolCallId: tr.toolCallId,
-                    toolName: tr.toolName,
-                    output: {
-                      type: "text" as const,
-                      value:
-                        typeof tr.output === "string"
-                          ? tr.output
-                          : JSON.stringify(tr.output),
-                    },
-                  },
-                ],
-              })),
-            );
             // 启动次级 LLM，不阻塞主 LLM
+            // toolResultsForSubLLM 通过独立参数传递，避免混入 messages 导致结构错误
             generateA2UIPromise = generateA2UIComponents({
               model: kimi_model("kimi-for-coding"),
-              messages: messagesWithToolResults,
+              messages: coreMessages,
               appType: input.appType,
+              toolResults: toolResultsForSubLLM,
             }).then((result) => {
               generateA2UIResult = result;
               generateA2UICompleted = true;

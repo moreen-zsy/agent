@@ -1,19 +1,35 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { A2UIStore } from '@a2ui/core';
+import { A2UIStore, AgentConversation, SurfaceMessageBinder } from '@a2ui/core';
 import { A2UIRenderer } from '@a2ui/react-render';
 import { HttpAgent } from '@ag-ui/client';
 import { A2UIMiddleware } from '@ag-ui/a2ui-middleware';
-import { Send, ShoppingBag, Sparkles, Loader2 } from 'lucide-react';
+import {
+  Send,
+  Sparkles,
+  Loader2,
+  Search,
+  Smile,
+  Flame,
+  ChefHat,
+  Star,
+  UtensilsCrossed,
+  Wine,
+  User,
+  X,
+} from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/api';
 import type { Dish } from '@/types';
 import gsap from 'gsap';
+import { Streamdown } from 'streamdown';
+import 'streamdown/styles.css';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   id: string;
+  surfaceId?: string;
 }
 
 const AGENT_URL = 'http://localhost:3000/api/agent/stream';
@@ -39,26 +55,149 @@ const A2UI_CATALOG_SCHEMA = {
     Spacer: { description: '占位空间' },
     Switch: { description: '开关' },
     Chip: { description: '标签芯片' },
+    Carousel: { description: '轮播图' },
   },
 };
 
+const QUICK_ACTIONS = [
+  { icon: Flame, label: '招牌推荐', prompt: '推荐几道你们的招牌菜' },
+  { icon: ChefHat, label: '厨师精选', prompt: '今天厨师有什么推荐' },
+  { icon: Star, label: '热门菜品', prompt: '看看最受欢迎的热销菜' },
+  { icon: UtensilsCrossed, label: '搭配建议', prompt: '帮我搭配一套完整的晚餐' },
+  { icon: Wine, label: '酒水搭配', prompt: '推荐适合配餐的酒水' },
+];
+
+function findAssistantAfterLastUser(prev: ChatMessage[]): number {
+  let lastUserIdx = -1;
+  for (let i = prev.length - 1; i >= 0; i--) {
+    const m = prev[i];
+    if (m && m.role === 'user') {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  for (let i = lastUserIdx + 1; i < prev.length; i++) {
+    const m = prev[i];
+    if (m && m.role === 'assistant') {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function DishModal({ dish, onClose }: { dish: Dish; onClose: () => void }) {
+  const { addToCart } = useCart();
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleEscape);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = '';
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!modalRef.current) return;
+    gsap.fromTo(
+      modalRef.current,
+      { opacity: 0, scale: 0.9, filter: 'blur(10px)' },
+      { opacity: 1, scale: 1, filter: 'blur(0px)', duration: 0.4, ease: 'power2.out' }
+    );
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+      <div
+        ref={modalRef}
+        className="relative bg-[#111] rounded-3xl overflow-hidden max-w-4xl w-full max-h-[90vh] flex flex-col md:flex-row shadow-2xl border border-white/10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/50 flex items-center justify-center text-white/70 hover:text-white hover:bg-black/80 transition-all"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        {/* Image */}
+        <div className="w-full md:w-1/2 aspect-square md:aspect-auto flex-shrink-0">
+          <img
+            src={dish.image}
+            alt={dish.name}
+            className="w-full h-full object-cover"
+          />
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 p-8 overflow-y-auto">
+          {dish.tags && dish.tags[0] && (
+            <span className="text-brand-orange text-xs uppercase tracking-[0.2em] font-display">
+              {dish.tags[0]}
+            </span>
+          )}
+          <h2 className="text-white font-display text-3xl font-bold mt-2 tracking-tight">
+            {dish.name}
+          </h2>
+          <p className="text-brand-orange font-display text-2xl font-bold mt-4">
+            ¥{dish.price}
+          </p>
+          <p className="font-serif text-white/50 text-sm mt-6 leading-relaxed">
+            {dish.fullDescription || dish.description}
+          </p>
+
+          {dish.ingredients && (
+            <div className="mt-6">
+              <h4 className="text-white/70 font-display text-xs uppercase tracking-wider mb-3">主要配料</h4>
+              <div className="flex flex-wrap gap-2">
+                {dish.ingredients.map(ing => (
+                  <span
+                    key={ing}
+                    className="px-3 py-1.5 bg-white/5 text-white/50 text-xs font-display rounded-lg border border-white/5"
+                  >
+                    {ing}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <button
+            onClick={() => {
+              addToCart(dish);
+              onClose();
+            }}
+            className="w-full mt-8 py-4 bg-brand-orange text-white font-display font-semibold text-sm uppercase tracking-widest rounded-xl hover:shadow-glow transition-all active:scale-[0.98]"
+          >
+            加入购物车
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AiOrder() {
-  const { addToCart, totalItems, openCart } = useCart();
-  const { user, openLoginModal } = useAuth();
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: 'assistant',
-      content:
-        '你好！我是 Gusto 智能点餐助手。告诉我你想吃什么，比如"推荐一份招牌主菜"或"来一份和牛汉堡加一杯红酒"，我会为你推荐合适的菜品。',
-      id: 'welcome',
-    },
-  ]);
+  const { addToCart } = useCart();
+  const { token } = useAuth();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [menuDishes, setMenuDishes] = useState<Dish[]>([]);
+  const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const emptyStateRef = useRef<HTMLDivElement>(null);
 
   // Refs for bridging A2UI Store <-> React Context
   const addToCartRef = useRef(addToCart);
@@ -105,7 +244,7 @@ export default function AiOrder() {
       });
   }, []);
 
-  // GSAP header animation
+  // GSAP animations
   useEffect(() => {
     if (!headerRef.current) return;
     gsap.fromTo(
@@ -115,7 +254,17 @@ export default function AiOrder() {
     );
   }, []);
 
-  // A2UI Store with cart bridge
+  useEffect(() => {
+    if (emptyStateRef.current && messages.length === 0) {
+      gsap.fromTo(
+        emptyStateRef.current.querySelectorAll('.empty-reveal'),
+        { opacity: 0, y: 20 },
+        { opacity: 1, y: 0, duration: 0.6, stagger: 0.08, ease: 'power2.out', delay: 0.2 }
+      );
+    }
+  }, [messages.length]);
+
+  // ========== @a2ui/core 层 ==========
   const [store] = useState(() => {
     return new A2UIStore({
       onUserAction: (action) => {
@@ -127,104 +276,188 @@ export default function AiOrder() {
             addToCartRef.current(dish);
           }
         }
+        if (a?.name === 'view_dish_detail') {
+          const dishId = a.context?.dishId;
+          const dish = menuDishesRef.current.find((d) => d.id === dishId);
+          if (dish) {
+            setSelectedDish(dish);
+          }
+        }
         pendingUserActionRef.current = action as any;
       },
     });
   });
+  const [conversation] = useState(() => new AgentConversation());
+  const [binder] = useState(() => new SurfaceMessageBinder());
 
-  // HttpAgent with A2UIMiddleware
+  // ========== 临时状态（订阅事件处理） ==========
+  const currentMsgIdRef = useRef<string>('');
+  const currentToolCallRef = useRef<{ id: string; name: string; args: string } | null>(null);
+  const toolCallNamesRef = useRef<Map<string, string>>(new Map());
+
+  // ========== HttpAgent ==========
   const agent = useMemo(() => {
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
     const httpAgent = new HttpAgent({
       url: AGENT_URL,
+      headers,
+      initialMessages: [],
     });
     const middleware = new A2UIMiddleware({
       schema: A2UI_CATALOG_SCHEMA,
-      injectA2UITool: true,
-      a2uiToolNames: ['render_a2ui'],
+      injectA2UITool: false,
     });
     httpAgent.use(middleware);
     return httpAgent;
-  }, []);
+  }, [token]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
   useEffect(() => {
-    scrollToBottom();
+    if (messages.length > 0) {
+      scrollToBottom();
+    }
   }, [messages, scrollToBottom]);
 
-  // Subscribe to AGUI events
+  // ========== 订阅 AGUI 事件 ==========
   useEffect(() => {
     const unsubscribe = agent.subscribe({
       onRunStartedEvent: () => setIsLoading(true),
-      onRunFinishedEvent: () => setIsLoading(false),
+      onRunFinishedEvent: () => {
+        currentMsgIdRef.current = '';
+        currentToolCallRef.current = null;
+        setIsLoading(false);
+      },
       onRunErrorEvent: ({ event }) => {
         setMessages((prev) => [
           ...prev,
-          {
-            role: 'assistant',
-            content: `错误: ${(event as any).message}`,
-            id: `err-${Date.now()}`,
-          },
+          { role: 'assistant', content: `错误: ${(event as any).message}`, id: `err-${Date.now()}` },
         ]);
         setIsLoading(false);
       },
       onTextMessageStartEvent: () => {
-        setMessages((prev) => [
-          ...prev,
-          { role: 'assistant', content: '', id: `msg-${Date.now()}` },
-        ]);
+        const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        currentMsgIdRef.current = msgId;
+        setMessages((prev) => [...prev, { role: 'assistant', content: '', id: msgId }]);
       },
       onTextMessageContentEvent: ({ event }) => {
+        const delta = (event as any).delta || '';
+        conversation.addAssistantText(delta);
+
         setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === 'assistant') {
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...last,
-                content: last.content + (event as any).delta,
-              },
-            ];
+          if (currentMsgIdRef.current) {
+            const idx = prev.findIndex((m) => m.id === currentMsgIdRef.current);
+            if (idx !== -1) {
+              const updated = [...prev];
+              const msg = updated[idx]!;
+              updated[idx] = { ...msg, content: msg.content + delta };
+              return updated;
+            }
           }
-          return prev;
+          const existingIdx = findAssistantAfterLastUser(prev);
+          if (existingIdx !== -1) {
+            const updated = [...prev];
+            const msg = updated[existingIdx]!;
+            updated[existingIdx] = { ...msg, content: msg.content + delta };
+            return updated;
+          }
+          const msgId = `msg-${Date.now()}`;
+          currentMsgIdRef.current = msgId;
+          return [...prev, { role: 'assistant', content: delta, id: msgId }];
         });
+      },
+      onToolCallStartEvent: ({ event }) => {
+        const tcId = (event as any).toolCallId;
+        const tcName = (event as any).toolCallName;
+        if (tcId && tcName) {
+          currentToolCallRef.current = { id: tcId, name: tcName, args: '' };
+          toolCallNamesRef.current.set(tcId, tcName);
+        }
+      },
+      onToolCallArgsEvent: ({ event }) => {
+        const tcId = (event as any).toolCallId;
+        const delta = (event as any).delta || '';
+        if (currentToolCallRef.current && currentToolCallRef.current.id === tcId) {
+          currentToolCallRef.current.args += delta;
+        }
+      },
+      onToolCallEndEvent: () => {
+        const tc = currentToolCallRef.current;
+        if (tc && tc.name !== 'render_a2ui' && tc.name !== 'generate_a2ui') {
+          conversation.addToolCall(tc.id, tc.name, tc.args);
+        }
+        currentToolCallRef.current = null;
+      },
+      onToolCallResultEvent: ({ event }) => {
+        const tcId = (event as any).toolCallId;
+        const content = (event as any).content;
+        const tcName = toolCallNamesRef.current.get(tcId);
+        if (tcName === 'render_a2ui' || tcName === 'generate_a2ui') return;
+        if (tcId) {
+          conversation.addToolResult(tcId, typeof content === 'string' ? content : JSON.stringify(content));
+        }
       },
       onActivitySnapshotEvent: ({ event }) => {
         const activityType = (event as any).activityType;
-        if (activityType === 'a2ui-surface') {
-          const operations = (event as any).content?.a2ui_operations;
-          if (Array.isArray(operations)) {
-            for (const msg of operations) {
-              if (msg) store.processMessage(msg);
-            }
-          }
+        if (activityType !== 'a2ui-surface') return;
+
+        const operations = (event as any).content?.a2ui_operations;
+        if (!Array.isArray(operations)) return;
+
+        const createOp = operations.find((op: any) => op?.createSurface);
+        const originalSurfaceId = createOp?.createSurface?.surfaceId;
+        if (!originalSurfaceId) return;
+
+        let msgId = currentMsgIdRef.current;
+        if (!msgId) {
+          msgId = `msg-${Date.now()}`;
+          currentMsgIdRef.current = msgId;
+          setMessages((prev) => [...prev, { role: 'assistant', content: '', id: msgId }]);
         }
+
+        const uniqueSurfaceId = binder.bind(msgId, originalSurfaceId);
+        const mappedOps = binder.mapOperations(operations, msgId);
+
+        for (const op of mappedOps) {
+          if (op) store.processMessage(op);
+        }
+
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === msgId);
+          if (idx === -1) return prev;
+          const updated = [...prev];
+          const msg = updated[idx]!;
+          updated[idx] = { ...msg, surfaceId: uniqueSurfaceId };
+          return updated;
+        });
       },
     });
 
-    return () => unsubscribe.unsubscribe();
-  }, [agent, store]);
+    return () => { unsubscribe.unsubscribe(); };
+  }, [agent, conversation, binder, store]);
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || isLoading) return;
 
-    const userMsg: ChatMessage = {
-      role: 'user',
-      content: text,
-      id: `user-${Date.now()}`,
-    };
-    setMessages((prev) => [...prev, userMsg]);
+    conversation.addUserMessage(text);
+    setMessages((prev) => [...prev, { role: 'user', content: text, id: `user-${Date.now()}` }]);
     setInput('');
 
     agent.addMessage({
-      id: userMsg.id,
+      id: `msg-${Date.now()}`,
       role: 'user',
       content: text,
     });
 
-    const forwardedProps: Record<string, any> = { appType: 'food' };
+    const forwardedProps: Record<string, any> = {
+      appType: 'food',
+      conversationHistory: conversation.getHistory(),
+    };
     if (pendingUserActionRef.current) {
       forwardedProps.a2uiAction = pendingUserActionRef.current;
     }
@@ -262,11 +495,7 @@ export default function AiOrder() {
     } catch (err) {
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'assistant',
-          content: `错误: ${(err as Error).message}`,
-          id: `err-${Date.now()}`,
-        },
+        { role: 'assistant', content: `错误: ${(err as Error).message}`, id: `err-${Date.now()}` },
       ]);
       setIsLoading(false);
     }
@@ -281,13 +510,37 @@ export default function AiOrder() {
     }
   };
 
+  // Auto-resize textarea
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    const el = e.target;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  };
+
+  // 组件卸载时清理所有 Surface
+  useEffect(() => {
+    return () => {
+      for (const msg of messages) {
+        if (msg.surfaceId) {
+          store.clearSurface(msg.surfaceId);
+        }
+      }
+    };
+  }, []);
+
+  const hasMessages = messages.length > 0;
+
   return (
-    <div className="relative z-10 min-h-screen pt-20 bg-[#0A0A0A]">
+    <div className="relative z-10 min-h-screen bg-[#0A0A0A]">
       {/* Header */}
-      <div ref={headerRef} className="px-6 lg:px-12 py-10 lg:py-14">
+      <div
+        ref={headerRef}
+        className={`px-6 lg:px-12 transition-all duration-500 ${hasMessages ? 'py-4' : 'py-10 lg:py-14'}`}
+      >
         <div className="max-w-5xl mx-auto">
           <div className="flex items-center justify-between">
-            <div>
+            <div className={hasMessages ? 'opacity-0 h-0 overflow-hidden' : ''}>
               <div className="header-reveal flex items-center gap-2 text-brand-orange text-xs uppercase tracking-[0.3em] font-display">
                 <Sparkles className="w-4 h-4" />
                 AI Powered
@@ -300,61 +553,131 @@ export default function AiOrder() {
               </p>
             </div>
 
-            {/* Cart quick access */}
-            <button
-              onClick={() => {
-                if (!user) {
-                  openLoginModal();
-                  return;
-                }
-                openCart();
-              }}
-              className="header-reveal relative p-3 bg-white/5 rounded-xl border border-white/10 hover:border-brand-orange/30 transition-all"
-            >
-              <ShoppingBag className="w-6 h-6 text-white/70" />
-              {totalItems > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-brand-orange text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                  {totalItems}
-                </span>
-              )}
-            </button>
           </div>
         </div>
       </div>
 
-      {/* Chat Area */}
-      <div className="px-6 lg:px-12 pb-32">
+      {/* Main Content */}
+      <div className={`px-6 lg:px-12 ${hasMessages ? 'pb-40' : ''}`}>
         <div className="max-w-5xl mx-auto">
-          <div className="bg-[#111] rounded-2xl border border-white/5 overflow-hidden">
-            {/* Messages */}
-            <div className="h-[calc(100vh-380px)] min-h-[400px] overflow-y-auto p-6 space-y-6">
+          {!hasMessages ? (
+            /* Empty State */
+            <div
+              ref={emptyStateRef}
+              className="flex flex-col items-center justify-center"
+              style={{ minHeight: 'calc(100vh - 340px)' }}
+            >
+              {/* AI Avatar */}
+              <div className="empty-reveal w-16 h-16 rounded-full bg-[#1a1a1a] border border-white/10 flex items-center justify-center mb-6 overflow-hidden">
+                <img src="/厨师.svg" alt="AI Chef" className="w-14 h-14 object-contain invert" />
+              </div>
+
+              {/* Title */}
+              <h2 className="empty-reveal text-white text-2xl lg:text-3xl font-display font-medium tracking-tight mb-10">
+                今天想吃点什么？
+              </h2>
+
+              {/* Big Input Box */}
+              <div className="empty-reveal w-full max-w-2xl">
+                <div className="relative bg-[#111] rounded-2xl border border-white/10 p-4 focus-within:border-brand-orange/40 transition-colors">
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                    onChange={handleInputChange}
+                    onKeyDown={handleKeyDown}
+                    placeholder="描述你想吃什么，例如：推荐一份招牌主菜..."
+                    disabled={isLoading}
+                    rows={1}
+                    className="w-full bg-transparent text-white font-display text-base placeholder:text-white/25 focus:outline-none resize-none min-h-[28px] max-h-[160px] pr-12 pb-8"
+                  />
+
+                  {/* Bottom toolbar */}
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
+                    <div className="flex items-center gap-2">
+                      <button className="p-2 rounded-lg hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors">
+                        <Search className="w-4 h-4" />
+                      </button>
+                      <button className="p-2 rounded-lg hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors">
+                        <Smile className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => sendMessage(input)}
+                      disabled={isLoading || !input.trim()}
+                      className="w-9 h-9 bg-white/10 text-white rounded-full flex items-center justify-center hover:bg-brand-orange transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Actions */}
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
+                  {QUICK_ACTIONS.map((action) => (
+                    <button
+                      key={action.label}
+                      onClick={() => sendMessage(action.prompt)}
+                      disabled={isLoading}
+                      className="empty-reveal flex items-center gap-2 px-4 py-2.5 bg-[#111] border border-white/10 rounded-full text-white/60 text-sm hover:border-white/20 hover:text-white transition-all disabled:opacity-40"
+                    >
+                      <action.icon className="w-4 h-4 text-brand-orange/70" />
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Chat State */
+            <div className="space-y-6 pt-4">
               {messages.map((msg) => (
                 <div
                   key={msg.id}
-                  className={`flex ${
-                    msg.role === 'user' ? 'justify-end' : 'justify-start'
-                  }`}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} gap-3`}
                 >
-                  <div
-                    className={`max-w-[80%] rounded-2xl px-5 py-3.5 text-sm ${
-                      msg.role === 'user'
-                        ? 'bg-brand-orange text-white'
-                        : 'bg-white/5 text-white/80 border border-white/5'
-                    }`}
-                  >
-                    <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+                  {msg.role === 'assistant' && (
+                    <div className="w-8 h-8 rounded-full bg-[#1a1a1a] border border-white/10 flex items-center justify-center flex-shrink-0 mt-1">
+                      <img src="/厨师.svg" alt="AI" className="w-6 h-6 object-contain invert" />
+                    </div>
+                  )}
+                  <div className={`max-w-[85%] lg:max-w-[75%] space-y-3`}>
+                    {msg.role === 'user' ? (
+                      <div className="bg-brand-orange text-white rounded-2xl rounded-tr-sm px-5 py-3.5 text-sm">
+                        <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Text content */}
+                        {msg.content ? (
+                          <div className="bg-white/5 text-white/80 rounded-2xl rounded-tl-sm px-5 py-3.5 border border-white/5 text-sm leading-relaxed">
+                            <Streamdown>{msg.content}</Streamdown>
+                          </div>
+                        ) : isLoading && !msg.surfaceId ? (
+                          <div className="bg-white/5 rounded-2xl rounded-tl-sm px-5 py-3.5 border border-white/5 flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 text-brand-orange animate-spin" />
+                            <span className="text-white/40 text-sm">AI 思考中...</span>
+                          </div>
+                        ) : null}
+                        {/* A2UI Surface */}
+                        {msg.surfaceId && (
+                          <div className="dark rounded-xl overflow-hidden">
+                            <A2UIRenderer surfaceId={msg.surfaceId} store={store} />
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
+                  {msg.role === 'user' && (
+                    <div className="w-8 h-8 rounded-full bg-brand-orange flex items-center justify-center flex-shrink-0 mt-1">
+                      <User className="w-5 h-5 text-white" />
+                    </div>
+                  )}
                 </div>
               ))}
 
-              {/* A2UI Render Area */}
-              <div className="dark">
-                <A2UIRenderer surfaceId="chat-surface" store={store} />
-              </div>
-
-              {isLoading && (
+              {isLoading && messages[messages.length - 1]?.role === 'user' && (
                 <div className="flex justify-start">
-                  <div className="bg-white/5 rounded-2xl px-5 py-3.5 border border-white/5 flex items-center gap-2">
+                  <div className="bg-white/5 rounded-2xl rounded-tl-sm px-5 py-3.5 border border-white/5 flex items-center gap-2">
                     <Loader2 className="w-4 h-4 text-brand-orange animate-spin" />
                     <span className="text-white/40 text-sm">AI 思考中...</span>
                   </div>
@@ -363,37 +686,51 @@ export default function AiOrder() {
 
               <div ref={messagesEndRef} />
             </div>
+          )}
+        </div>
+      </div>
 
-            {/* Input Area */}
-            <div className="border-t border-white/5 p-4">
-              <div className="flex items-center gap-3">
-                <div className="flex-1 relative">
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="描述你想吃什么，例如：推荐一份招牌主菜..."
-                    disabled={isLoading}
-                    className="w-full pl-5 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-white font-display text-sm placeholder:text-white/30 focus:outline-none focus:border-brand-orange/50 transition-colors disabled:opacity-50"
-                  />
+      {/* Bottom Input (chat state only) */}
+      {hasMessages && (
+        <div className="fixed bottom-0 left-0 right-0 bg-[#0A0A0A]/90 backdrop-blur-xl border-t border-white/5 z-50">
+          <div className="max-w-5xl mx-auto px-6 lg:px-12 py-4">
+            <div className="relative bg-[#111] rounded-2xl border border-white/10 p-4 focus-within:border-brand-orange/40 transition-colors">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder="继续对话..."
+                disabled={isLoading}
+                rows={1}
+                className="w-full bg-transparent text-white font-display text-base placeholder:text-white/25 focus:outline-none resize-none min-h-[24px] max-h-[120px] pr-12 pb-8"
+              />
+              <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
+                <div className="flex items-center gap-2">
+                  <button className="p-2 rounded-lg hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors">
+                    <Search className="w-4 h-4" />
+                  </button>
+                  <button className="p-2 rounded-lg hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors">
+                    <Smile className="w-4 h-4" />
+                  </button>
                 </div>
                 <button
                   onClick={() => sendMessage(input)}
                   disabled={isLoading || !input.trim()}
-                  className="flex-shrink-0 w-12 h-12 bg-brand-orange text-white rounded-xl flex items-center justify-center hover:bg-brand-orange/90 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-9 h-9 bg-brand-orange text-white rounded-full flex items-center justify-center hover:bg-brand-orange/90 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  <Send className="w-5 h-5" />
+                  <Send className="w-4 h-4" />
                 </button>
               </div>
-              <p className="text-white/20 text-xs mt-2 text-center font-display">
-                AI 生成的推荐仅供参考，请以实际菜单为准
-              </p>
             </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Dish Detail Modal */}
+      {selectedDish && (
+        <DishModal dish={selectedDish} onClose={() => setSelectedDish(null)} />
+      )}
     </div>
   );
 }

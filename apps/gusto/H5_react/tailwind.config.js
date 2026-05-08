@@ -1,7 +1,11 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ["class"],
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+    '../../../a2ui-render/react-render/src/**/*.{js,ts,jsx,tsx}',
+  ],
   theme: {
     extend: {
       colors: {

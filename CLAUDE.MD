@@ -16,61 +16,77 @@ v0.9 相比 v0.8 的关键改进：
 - **扁平组件格式**：`{component: "Text", text: "Hello"}` 替代嵌套结构
 - **DynamicValue**：统一字面量、`{path}` 数据绑定、`{call}` 函数调用
 - **AGUI 传输层**：标准化事件流（RUN_STARTED → TEXT_MESSAGE → ACTIVITY_SNAPSHOT → RUN_FINISHED）
-- **中间件驱动**：A2UIMiddleware 在客户端注入 schema、解析 tool call、渐进式渲染
+- **双 LLM 架构**：主 LLM 处理业务工具 + `generate_a2ui`，次级 LLM 强制 `render_a2ui` 生成组件
+- **服务端自治**：服务端直接构造 `ACTIVITY_SNAPSHOT` 事件，客户端无需拦截 tool call
+- **消息级 A2UI 渲染**：每条 assistant 消息拥有独立 Surface，多轮对话 UI 互不干扰
 
 ## 架构分层
 
 ```
 客户端（Client）                                                服务端（Server）
-┌─────────────────────────────────────────────────┐            ┌─────────────────────────┐
-│  HttpAgent + A2UIMiddleware                     │            │                         │
-│         ↓ 注入 schema + render_a2ui tool         │   AGUI    │  ┌──────────────────┐   │
-│         ↓ HTTP/SSE 流式传输                      │ ◄──────► │  │   a2ui-server    │   │
-│  ┌──────────┐    ┌──────────┐   ┌──────────┐   │  事件流   │  │  Elysia 路由      │   │
-│  │a2ui-core │───▶│a2ui-render│──▶│   DOM    │   │            │  └────────┬─────────┘   │
-│  │协议解析   │    │ 组件渲染  │   │          │   │            │           ↓             │
-│  │状态管理   │    │          │   │          │   │            │  ┌──────────────────┐   │
-│  │树构建    │    └──────────┘   └──────────┘   │            │  │   a2ui-agent     │   │
-│  │增量更新   │                                 │            │  │  纯 LLM 代理      │   │
-│  └──────────┘                                 │            │  │  streamText +    │   │
-│       ↑                                       │            │  │  buildBusinessTools│  │
-│  ┌──────────┐                                 │            │  └────────┬─────────┘   │
-│  │ 业务应用  │  apps/campus-web                │            │           ↓             │
-│  └──────────┘                                 │            │  ┌──────────────────┐   │
-└─────────────────────────────────────────────────┘            │  │   MCP Clients    │   │
-                                                               │  │  createMCPClient │   │
-                                                               │  │  + StdioTransport│   │
-                                                               │  └────────┬─────────┘   │
-                                                               │           ↓             │
-                                                               │  ┌──────────────────┐   │
-                                                               │  │   MCP Servers    │   │
-                                                               │  │ ┌─────┐ ┌─────┐  │   │
-                                                               │  │ │food │ │campus│  │   │
-                                                               │  │ │-mcp │ │ -mcp │  │   │
-                                                               │  │ └──┬──┘ └──┬──┘  │   │
-                                                               │  └────┼─────┼──────┘   │
-                                                               │       ↓     ↓          │
-                                                               │  ┌──────────────────┐   │
-                                                               │  │ a2ui-server REST │   │
-                                                               │  │     API          │   │
-                                                               │  └──────────────────┘   │
-                                                               └─────────────────────────┘
+┌──────────────────────────────────────────────────────────┐   ┌─────────────────────────────┐
+│  HttpAgent + A2UIMiddleware (injectA2UITool: false)      │   │                             │
+│         ↓ 注入 schema（不再拦截 render_a2ui）              │   │  ┌──────────────────────┐   │
+│         ↓ HTTP/SSE 流式传输                               │   │  │    a2ui-server       │   │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐  │AGU│  │  Elysia 路由          │   │
+│  │  @a2ui/core │─▶│@a2ui/react  │─▶│      DOM         │  │I  │  └──────────┬───────────┘   │
+│  │ 协议解析     │  │ -render     │  │                  │  │事 │             ↓               │
+│  │ A2UIStore    │  │ A2UIRenderer│  │                  │  │件 │  ┌──────────────────────┐   │
+│  │ AgentConv.   │  │ A2UIChatMsg │  │                  │  │流 │  │    a2ui-agent        │   │
+│  │ SurfaceBind. │  └─────────────┘  └──────────────────┘  │◄─►│  │  ┌────────────────┐  │   │
+│  └─────────────┘                                         │   │  │  │   主 LLM        │  │   │
+│       ↑                                                   │   │  │  │  streamText     │  │   │
+│  ┌─────────────┐                                         │   │  │  │  + 业务工具(MCP) │  │   │
+│  │  业务应用    │  apps/playground                        │   │  │  └───────┬────────┘  │   │
+│  │ AgentTest.tsx│    (消息级 A2UI + Streamdown)           │   │  │          ↓ generate_a2ui │
+│  └─────────────┘                                         │   │  │  ┌────────────────┐  │   │
+└──────────────────────────────────────────────────────────┘   │  │  │   次级 LLM      │  │   │
+                                                               │  │  │  强制 render_a2ui│  │   │
+                                                               │  │  │  (toolChoice)   │  │   │
+                                                               │  │  └───────┬────────┘  │   │
+                                                               │  │          ↓            │   │
+                                                               │  │  ┌────────────────┐  │   │
+                                                               │  │  │ ACTIVITY_SNAPSHOT│  │   │
+                                                               │  │  │ (a2ui_operations)│  │   │
+                                                               │  │  └────────────────┘  │   │
+                                                               │  └──────────┬───────────┘   │
+                                                               │             ↓               │
+                                                               │  ┌──────────────────────┐   │
+                                                               │  │   MCP Clients        │   │
+                                                               │  │  createMCPClient     │   │
+                                                               │  │  + StdioTransport    │   │
+                                                               │  └──────────┬───────────┘   │
+                                                               │             ↓               │
+                                                               │  ┌──────────────────────┐   │
+                                                               │  │   MCP Servers        │   │
+                                                               │  │ ┌─────┐  ┌────────┐  │   │
+                                                               │  │ │food │  │campus  │  │   │
+                                                               │  │ │-mcp │  │ -mcp   │  │   │
+                                                               │  │ └──┬──┘  └───┬────┘  │   │
+                                                               │  └────┼────────┼───────┘   │
+                                                               │       ↓        ↓           │
+                                                               │  ┌──────────────────────┐   │
+                                                               │  │ a2ui-server REST API │   │
+                                                               │  └──────────────────────┘   │
+                                                               └─────────────────────────────┘
 ```
 
 **分层说明：**
 
-| 包            | 运行环境   | 职责                                                        |
-| ------------- | ---------- | ----------------------------------------------------------- |
-| `a2ui-agent`  | 服务端     | LLM 代理：透传 messages/tools/context，原样返回 AGUI 事件流 |
-| `a2ui-server` | 服务端     | 传输层：Elysia HTTP 路由，接收 AGUI 请求，流式响应          |
-| `a2ui-core`   | **客户端** | 协议层：v0.9 协议解析、状态管理、树构建、增量更新           |
-| `a2ui-render` | **客户端** | 视图层：将 v0.9 协议树渲染为 React / Vue 组件               |
-| `@ag-ui/*`    | 客户端     | AGUI 生态：HttpAgent 传输、A2UIMiddleware 协议转换          |
-| **MCP Client**| 服务端     | `@ai-sdk/mcp` `createMCPClient` + `StdioClientTransport`   |
-| **MCP Server**| 服务端     | `food-mcp` / `campus-mcp`：业务工具封装，调用 REST API      |
+| 包             | 运行环境   | 职责                                                                                                                                           |
+| -------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `a2ui-agent`   | 服务端     | 双 LLM 代理：主 LLM 处理业务工具 + `generate_a2ui`；次级 LLM 强制 `render_a2ui` 生成组件；直接构造 `ACTIVITY_SNAPSHOT`                         |
+| `a2ui-server`  | 服务端     | 传输层：Elysia HTTP 路由，接收 AGUI 请求，流式响应                                                                                             |
+| `a2ui-core`    | **客户端** | 协议层：v0.9 协议解析、状态管理、树构建、增量更新；**新增** `AgentConversation`（对话历史管理）、`SurfaceMessageBinder`（消息级 Surface 绑定） |
+| `a2ui-render`  | **客户端** | 视图层：将 v0.9 协议树渲染为 React / Vue 组件；**新增** `A2UIChatMessage`（消息级 Surface + 文本组合渲染）                                     |
+| `@ag-ui/*`     | 客户端     | AGUI 生态：HttpAgent 传输、A2UIMiddleware（现仅注入 schema，`injectA2UITool: false`）                                                          |
+| **MCP Client** | 服务端     | `@ai-sdk/mcp` `createMCPClient` + `StdioClientTransport`                                                                                       |
+| **MCP Server** | 服务端     | `food-mcp` / `campus-mcp`：业务工具封装，调用 REST API                                                                                         |
 
-- **服务端极简**：a2ui-agent 不再手动定义 `render_a2ui` tool 或构建 prompt，所有 A2UI 逻辑由客户端 A2UIMiddleware 处理
-- **客户端自治**：中间件自动注入 v0.9 schema、拦截 tool call、渐进式解析 JSON、emit ACTIVITY_SNAPSHOT
+- **双 LLM 架构**：主 LLM 负责业务推理和触发 `generate_a2ui`；次级 LLM（非阻塞后台运行）通过 `toolChoice: {type: "tool", toolName: "render_a2ui"}` 强制生成组件，确保 UI 质量
+- **服务端自治**：`a2ui-agent` 直接构造 `ACTIVITY_SNAPSHOT` 事件（含 `a2ui_operations`），客户端 A2UIMiddleware 不再需要拦截 `render_a2ui`
+- **非阻塞 UI 生成**：次级 LLM 在后台运行，主 LLM 的 Markdown 文本流不受阻塞，用户先看到文字说明，后看到 UI 组件
+- **消息级 A2UI**：每条 assistant 消息拥有独立 Surface（通过 `SurfaceMessageBinder` 生成消息级唯一 `surfaceId`），多轮对话的 UI 互不覆盖
 - `core` 与 `render` 解耦：`core` 纯 TypeScript 不依赖框架
 - **MCP 工具链**：业务工具通过 MCP Server 实现，Agent Engine 通过 MCP Client 动态获取，支持工具热更新和多领域隔离
 
@@ -102,7 +118,9 @@ d:/agent/
 │   │   ├── store.ts         # 状态管理 + action 发送
 │   │   ├── data-model.ts    # DynamicValue 解析、数据绑定
 │   │   ├── tree-builder.ts  # 扁平组件 → 树形 VNode
-│   │   └── buffer.ts        # Surface 级消息缓冲（createSurface/updateComponents/...）
+│   │   ├── buffer.ts        # Surface 级消息缓冲（createSurface/updateComponents/...）
+│   │   ├── agent-conversation.ts  # AgentConversation：OpenAI 格式对话历史管理
+│   │   └── surface-binder.ts      # SurfaceMessageBinder：消息级 Surface 唯一 ID 绑定
 │   ├── package.json
 │   └── tsconfig.json
 │
@@ -111,6 +129,7 @@ d:/agent/
 │   │   ├── src/
 │   │   │   ├── VNodeRenderer.tsx    # DynamicValue 解析 + Template children
 │   │   │   ├── renderer.tsx         # Surface 渲染入口
+│   │   │   ├── chat-message.tsx     # A2UIChatMessage：消息级 Surface + 文本组合渲染
 │   │   │   ├── catalog/             # 组件注册表（v0.9 catalog URI）
 │   │   │   └── components/          # 18+ 标准组件（ChoicePicker/Modal/Chip/Switch...）
 │   └── vue-render/          # @a2ui/vue-render — Vue 3 渲染器（待实现）
@@ -124,6 +143,8 @@ d:/agent/
 │   └── tsconfig.json
 │
 ├── apps/                    # 业务应用
+│   ├── playground/          # Agent 实时测试面板（消息级 A2UI + Streamdown）
+│   │   └── src/components/AgentTest.tsx   # AgentConversation + SurfaceMessageBinder + A2UIChatMessage
 │   ├── gusto/               # Gusto 应用（H5 React）
 │   │   └── H5_react/
 │   └── campus-web/          # 校园助手应用
@@ -209,10 +230,12 @@ d:/agent/
 1. **业务无关**：`@a2ui/agent` 是纯 LLM 代理，不耦合任何业务代码或 A2UI 协议细节
 2. **框架无关**：`@a2ui/core` 纯 TypeScript，不依赖任何前端框架
 3. **AGUI 标准化**：传输层完全遵循 AGUI 事件流规范，兼容任意 AGUI 客户端
-4. **中间件自治**：A2UI schema 注入、tool call 解析、渐进式渲染全部在客户端完成
+4. **服务端自治**：A2UI 组件生成（次级 LLM）、`ACTIVITY_SNAPSHOT` 构造在服务端完成，客户端只需消费事件流，无需拦截 tool call
 5. **流式友好**：支持增量解析和增量渲染，无需等待完整数据
-6. **类型安全**：完整的 TypeScript 类型定义 + Zod 运行时校验
-7. **跨端一致**：同一份 v0.9 协议可渲染到 Web、Vue、小程序
+6. **非阻塞 UI 生成**：次级 LLM 在后台运行，Markdown 文本流与 UI 生成并行，用户先看到文字后看到组件
+7. **消息级隔离**：每条 assistant 消息拥有独立 Surface，多轮对话的 UI 状态互不覆盖
+8. **类型安全**：完整的 TypeScript 类型定义 + Zod 运行时校验
+9. **跨端一致**：同一份 v0.9 协议可渲染到 Web、Vue、小程序
 
 ## MCP 工具链架构
 
@@ -252,7 +275,7 @@ const client = await createMCPClient({
     env: { A2UI_API_BASE: "http://localhost:3000" },
   }),
 });
-const tools = await client.tools();  // ToolSet，直接传给 streamText
+const tools = await client.tools(); // ToolSet，直接传给 streamText
 ```
 
 - **生命周期管理**：`runAgentStream` 使用 `try...finally` 确保每次请求后 `await mcp.close()`，避免子进程泄漏
@@ -261,10 +284,10 @@ const tools = await client.tools();  // ToolSet，直接传给 streamText
 
 **2. MCP Server（`a2ui-agent/mcp/*-mcp/src/index.ts`）**
 
-| 领域 | 工具数 | 公开工具 | 需认证工具 |
-|------|--------|----------|------------|
-| `food-mcp` | 7 | `query_menu`, `get_dish_detail` | `place_order`, `get_orders`, `get_order_detail`, `update_order_status`, `cancel_order` |
-| `campus-mcp` | 8 | `query_facilities`, `get_facility_detail` | `book_facility`, `get_reservations`, `update_reservation`, `cancel_reservation`, `pay_fee`, `query_payments`, `update_payment` |
+| 领域         | 工具数 | 公开工具                                  | 需认证工具                                                                                                                     |
+| ------------ | ------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `food-mcp`   | 7      | `query_menu`, `get_dish_detail`           | `place_order`, `get_orders`, `get_order_detail`, `update_order_status`, `cancel_order`                                         |
+| `campus-mcp` | 8      | `query_facilities`, `get_facility_detail` | `book_facility`, `get_reservations`, `update_reservation`, `cancel_reservation`, `pay_fee`, `query_payments`, `update_payment` |
 
 MCP Server 通过 `A2UI_API_BASE` 环境变量调用 a2ui-server 的 REST API，认证工具需传入 `token` 参数（JWT）。
 
@@ -277,21 +300,167 @@ bun run a2ui-agent/src/mcp-client.ts
 ```
 
 功能：
+
 - 同时连接 `food-mcp` 和 `campus-mcp`
 - 同名工具自动加前缀（`food__auth_login`, `campus__auth_login`）
 - 使用 `generateText` + `stopWhen: stepCountIs(8)` 限制推理轮数
 
 ### 与本地工具的区别
 
-| 特性 | `local-tools.ts`（旧） | MCP Server（新） |
-|------|------------------------|------------------|
-| 工具定义位置 | a2ui-agent 内部 | 独立 MCP Server 进程 |
-| 与后端 API 关系 | 直接 `fetch()` localhost:3000 | 通过 MCP stdio 协议调用 |
-| 工具数量 | food 4 个 / campus 4 个 | food 7 个 / campus 8 个 |
-| JWT 认证 | 无 | 完整支持（token 参数） |
-| LLM 可见 schema | 简单 description | Zod schema 自动生成 JSON Schema |
-| 热更新 | 需重启 server | MCP Server 独立部署即可更新 |
-| 适用场景 | 测试 / 开发回退 | 生产环境 |
+| 特性            | `local-tools.ts`（旧）        | MCP Server（新）                |
+| --------------- | ----------------------------- | ------------------------------- |
+| 工具定义位置    | a2ui-agent 内部               | 独立 MCP Server 进程            |
+| 与后端 API 关系 | 直接 `fetch()` localhost:3000 | 通过 MCP stdio 协议调用         |
+| 工具数量        | food 4 个 / campus 4 个       | food 7 个 / campus 8 个         |
+| JWT 认证        | 无                            | 完整支持（token 参数）          |
+| LLM 可见 schema | 简单 description              | Zod schema 自动生成 JSON Schema |
+| 热更新          | 需重启 server                 | MCP Server 独立部署即可更新     |
+| 适用场景        | 测试 / 开发回退               | 生产环境                        |
+
+## 双 LLM 架构
+
+`a2ui-agent` 采用**主-次双 LLM** 模式分离业务推理与 UI 生成：
+
+```
+用户请求
+    ↓
+主 LLM (kimi-for-coding) —— 业务推理
+    ├── query_menu / get_dish_detail 等 MCP 业务工具
+    ├── 获取数据后调用 generate_a2ui（虚拟工具，触发次级 LLM）
+    └── 继续流式输出 Markdown 文本说明
+            ↓ 非阻塞启动
+    次级 LLM (kimi-for-coding) —— UI 设计
+        ├── 接收主 LLM 的完整对话历史 + 业务工具结果
+        ├── toolChoice: {type: "tool", toolName: "render_a2ui"} 强制生成
+        └── 返回 {surfaceId, catalogId, components[], data?}
+            ↓
+    a2ui-agent 构造 ACTIVITY_SNAPSHOT
+        { type: "ACTIVITY_SNAPSHOT", activityType: "a2ui-surface",
+          content: { a2ui_operations: [createSurface, updateComponents, updateDataModel] } }
+            ↓ HTTP/SSE
+    前端接收事件 → 直接送入 A2UIStore 渲染
+```
+
+**关键实现（`a2ui-agent/src/engine/agent.ts`）：**
+
+```typescript
+// generate_a2ui 触发时，非阻塞启动次级 LLM
+generateA2UIPromise = generateA2UIComponents({ model, messages, appType }).then(
+  (result) => {
+    generateA2UICompleted = true;
+    generateA2UIResult = result;
+  },
+);
+
+// 主 LLM 流循环每轮检查次级 LLM 是否完成
+for await (const chunk of result.fullStream) {
+  if (generateA2UICompleted && !generateA2UIHandled) {
+    yield createA2UIActivitySnapshot(generateA2UIResult);
+    generateA2UIHandled = true;
+  }
+  // ... 继续处理 text-delta / tool-call / tool-result
+}
+
+// 流结束后兜底：若次级 LLM 仍未完成，等待它
+if (!generateA2UIHandled && generateA2UIPromise) {
+  const result = await generateA2UIPromise;
+  yield createA2UIActivitySnapshot(result);
+}
+```
+
+**次级 LLM（`a2ui-agent/src/tools/generate-a2ui.ts`）：**
+
+- 通过 `extractToolData()` 从对话历史的 tool-result 中提取业务数据，注入 system prompt
+- `toolChoice: {type: "tool", toolName: "render_a2ui"}` 确保 LLM 必须调用工具，不输出闲聊文本
+- 返回降级组件（错误提示 Column+Text）当组件生成失败时
+
+## 消息级 A2UI 渲染
+
+传统方案使用全局单一 Surface（如 `chat-surface`），所有 assistant 消息的 A2UI 堆叠在同一区域。当前架构改为**每条 assistant 消息拥有独立 Surface**。
+
+### 核心类
+
+**`AgentConversation`（`a2ui-core/src/agent-conversation.ts`）**
+
+维护 OpenAI 兼容格式的 clean 对话历史，绕过 `@ag-ui/client` HttpAgent 的格式损坏问题（assistant tool-call 缺少 content/toolCalls，tool result 缺少 toolCallId）：
+
+```typescript
+const conversation = new AgentConversation();
+conversation.addUserMessage("查询菜单");
+conversation.addAssistantText("为您找到以下菜品"); // 自动累积
+conversation.addToolCall("tc-1", "query_menu", "{}");
+conversation.addToolResult("tc-1", '{"data": [...]}');
+const history = conversation.getHistory(); // 供 forwardedProps.conversationHistory 传入服务端
+```
+
+**`SurfaceMessageBinder`（`a2ui-core/src/surface-binder.ts`）**
+
+将 LLM 生成的原始 `surfaceId`（如 `"main"`）映射为消息级唯一 ID（如 `"msg-xxx__main"`），避免多轮对话 Surface 冲突：
+
+```typescript
+const binder = new SurfaceMessageBinder();
+const uniqueId = binder.bind(messageId, originalSurfaceId); // "msg-xxx__main"
+const mappedOps = binder.mapOperations(operations, messageId); // 替换所有 op 中的 surfaceId
+```
+
+**`A2UIChatMessage`（`a2ui-render/react-render/src/chat-message.tsx`）**
+
+组合渲染组件：头部渲染 A2UI Surface，下方渲染文本内容（支持自定义 textRenderer / loadingRenderer）：
+
+```tsx
+<A2UIChatMessage
+  messageId={msg.id}
+  surfaceId={msg.surfaceId} // 消息级唯一 Surface ID
+  content={msg.content} // Markdown 文本
+  store={store}
+  isLoading={isLoading && !msg.content && !msg.surfaceId}
+  textRenderer={(content) => <Streamdown>{content}</Streamdown>}
+/>
+```
+
+### 前端事件流处理（`AgentTest.tsx`）
+
+```
+TEXT_MESSAGE_START      → 创建 assistant 消息占位（id: msg-xxx）
+TEXT_MESSAGE_CONTENT    → conversation.addAssistantText(delta) + setMessages 更新文本
+ACTIVITY_SNAPSHOT       → binder.bind(msgId, surfaceId) + binder.mapOperations() + store.processMessage()
+                         → setMessages 绑定 surfaceId 到对应消息
+TOOL_CALL_START/ARGS    → 记录当前 tool call（除 generate_a2ui 外写入 conversation）
+TOOL_CALL_RESULT        → conversation.addToolResult()（generate_a2ui 跳过，由服务端直接发 ACTIVITY_SNAPSHOT）
+```
+
+### Surface 生命周期
+
+组件卸载时遍历所有消息的 `surfaceId`，调用 `store.clearSurface()` 清理：
+
+```typescript
+useEffect(() => {
+  return () => {
+    for (const msg of messages) {
+      if (msg.surfaceId) store.clearSurface(msg.surfaceId);
+    }
+  };
+}, []);
+```
+
+## 客户端 Clean History 机制
+
+`@ag-ui/client` 的 `HttpAgent` 在多轮对话中存在格式损坏问题：
+
+| 问题                | AGUI 格式                                                  | 期望的 OpenAI 格式                                    |
+| ------------------- | ---------------------------------------------------------- | ----------------------------------------------------- |
+| assistant tool-call | `{role: "assistant", id: "..."}`（缺少 content/toolCalls） | `{role: "assistant", content: "", tool_calls: [...]}` |
+| tool result         | `{role: "tool", content: "..."}`（缺少 toolCallId）        | `{role: "tool", tool_call_id: "...", content: "..."}` |
+
+**解决方案**：前端通过 `AgentConversation` 维护并行的 clean 历史，每次请求通过 `forwardedProps.conversationHistory` 传入服务端。服务端 `convertToCoreMessages()` 优先使用 clean history，检测到 HttpAgent 损坏格式时自动跳过/兜底：
+
+```typescript
+const useCleanHistory = !!forwardedProps?.conversationHistory;
+const sourceMessages = useCleanHistory
+  ? forwardedProps!.conversationHistory
+  : input.messages;
+const coreMessages = convertToCoreMessages(sourceMessages);
+```
 
 ## A2UI v0.9 协议速览
 

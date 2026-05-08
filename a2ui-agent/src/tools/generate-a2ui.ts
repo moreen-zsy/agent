@@ -36,9 +36,18 @@ const uiDesignerSystemPrompt = `你是 A2UI UI 设计专家。你的唯一任务
 8. Image 使用 url 属性，不是 src；图片 URL 必须使用业务数据中的真实路径（如 "/dish-burger.jpg"），不要用占位图
 9. Text 使用 variant 属性设置样式，不是 style
 10. 根组件 id 必须为 "root"
-11. 【强制】菜单展示必须使用 Carousel 轮播图组件。items 数组必须包含 API 返回的【全部】菜品，严禁只选部分。每个 item 必须使用 API 返回的准确数据：imageUrl 用菜品对象的 image 字段（如 "/dish-burger.jpg"），title 用 name 字段，description 用 "¥{price} | {description}" 格式。严禁编造、修改或省略任何菜品数据
-12. Carousel items 映射规则：严格按 API 返回的 data 数组顺序，每项映射为 { imageUrl: item.image, title: item.name, description: "¥" + item.price + " | " + item.description }，禁止自行改写名称、价格或图片路径
-13. catalogId 使用 "https://a2ui.org/specification/v0_9/basic_catalog.json"`;
+11. 【强制】菜单展示必须使用 Carousel 轮播图组件。items 数组必须包含 API 返回的【全部】菜品，严禁只选部分。每个 item 必须使用 API 返回的准确数据：id 用菜品对象的 id 字段，imageUrl 用菜品对象的 image 字段（如 "/dish-burger.jpg"），title 用 name 字段，description 用 "¥{price} | {description}" 格式。严禁编造、修改或省略任何菜品数据
+12. Carousel items 映射规则：严格按 API 返回的 data 数组顺序，每项映射为 { id: item.id, imageUrl: item.image, title: item.name, description: "¥" + item.price + " | " + item.description }，禁止自行改写名称、价格或图片路径
+12a. Carousel 支持点击交互：必须给 Carousel 添加 action 属性 action: { event: { name: "view_dish_detail" } }，这样用户点击轮播图时会触发查看详情事件
+13. catalogId 使用 "https://a2ui.org/specification/v0_9/basic_catalog.json"
+14. 【排版规范】标题、副标题等核心文案必须通过父级 Column 的 align: "center" 实现水平居中，确保视觉焦点在画面中央；描述文字如需居中同理。避免仅靠 Text 自身样式做居中对齐，永远通过布局容器控制整体排版
+15. 【菜品展示】展示单一菜品时，只生成一个 Card 组件，Card 内包含该菜品的图片和一个购物车图标按钮即可，不要添加名称、价格、描述等其他元素。Button 的 child 必须是 Icon(name: "shoppingCart")，严禁使用 Text。
+    完整示例：
+    { id: "detail-card", component: "Card", child: "detail-col" }
+    { id: "detail-col", component: "Column", children: ["dish-img", "cart-btn"] }
+    { id: "dish-img", component: "Image", url: "/dish.jpg", fit: "cover" }
+    { id: "cart-btn", component: "Button", child: "cart-icon", variant: "primary", action: { event: { name: "add_to_cart", context: { dishId: "123" } } } }
+    { id: "cart-icon", component: "Icon", name: "shoppingCart" }`;
 
 export interface GenerateA2UIInput {
   /** 已初始化的语言模型实例（由调用方传入） */
@@ -47,12 +56,17 @@ export interface GenerateA2UIInput {
   messages: ModelMessage[];
   /** 应用类型，影响组件风格 */
   appType: string;
+  /** 当前轮次已完成的业务工具结果（不混入 messages，避免结构错误） */
+  toolResults?: Array<{ toolCallId: string; toolName: string; output: unknown }>;
 }
 
 /**
  * 从对话历史的 tool result 中提取业务数据，注入 system prompt。
  */
-function extractToolData(messages: ModelMessage[]): string {
+function extractToolData(
+  messages: ModelMessage[],
+  extraToolResults?: Array<{ toolCallId: string; toolName: string; output: unknown }>,
+): string {
   const results: string[] = [];
 
   for (const msg of messages) {
@@ -92,6 +106,15 @@ function extractToolData(messages: ModelMessage[]): string {
     }
   }
 
+  // 追加当前轮次的业务工具结果（不混入 messages 以避免结构错误）
+  if (extraToolResults) {
+    for (const tr of extraToolResults) {
+      const text =
+        typeof tr.output === "string" ? tr.output : JSON.stringify(tr.output);
+      if (text) results.push(text);
+    }
+  }
+
   if (results.length === 0) return "";
   return `\n\n【可用业务数据】（必须严格使用以下数据，严禁编造）：\n${results.join("\n---\n")}`;
 }
@@ -108,14 +131,15 @@ export async function generateA2UIComponents(
   components: any[];
   data?: any;
 }> {
-  const { model, messages, appType } = input;
+  const { model, messages, appType, toolResults } = input;
 
   try {
-    const toolData = extractToolData(messages);
+    const toolData = extractToolData(messages, toolResults);
+
     const result = await streamText({
       model,
       system: `${uiDesignerSystemPrompt}\n\n当前应用类型：${appType}${toolData}`,
-      messages: messages.filter((m) => m.role !== "system" && m.role !== "tool"),
+      messages: messages.filter((m) => m.role !== "system"),
       tools: {
         render_a2ui: {
           description:

@@ -4,20 +4,30 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import type { A2UIComponentProps, ActionProps } from './types.js';
 
 export interface CarouselItem {
   imageUrl: string;
   title?: string;
   description?: string;
+  id?: string;
 }
 
-export interface CarouselProps {
+export interface CarouselProps extends A2UIComponentProps, ActionProps {
   items?: CarouselItem[];
   autoPlay?: boolean;
   interval?: number;
 }
 
-export function A2UICarousel({ items = [], autoPlay = true, interval = 3000 }: CarouselProps) {
+export function A2UICarousel({
+  items = [],
+  autoPlay = true,
+  interval = 3000,
+  action,
+  _store,
+  _surfaceId,
+  _componentId,
+}: CarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const goToNext = useCallback(() => {
@@ -43,10 +53,32 @@ export function A2UICarousel({ items = [], autoPlay = true, interval = 3000 }: C
     return <div className="w-full h-64 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400">加载中</div>;
   }
 
+  const handleItemClick = (item: CarouselItem) => {
+    if (!_store || !_surfaceId || !_componentId) return;
+    if (!action?.event?.name) return;
+
+    _store.sendUserAction({
+      action: {
+        name: action.event.name,
+        surfaceId: _surfaceId,
+        sourceComponentId: _componentId,
+        timestamp: new Date().toISOString(),
+        context: {
+          ...(action.event.context || {}),
+          dishId: item.id,
+          dishName: item.title,
+        },
+      },
+    });
+  };
+
   return (
-    <div className="relative w-full overflow-hidden rounded-lg">
+    <div className="relative w-full min-w-0 self-stretch overflow-hidden rounded-lg">
       {/* 图片区域 */}
-      <div className="relative w-full h-64">
+      <div
+        className="relative w-full h-64 cursor-pointer"
+        onClick={() => handleItemClick(currentItem)}
+      >
         <img
           src={currentItem.imageUrl}
           alt={currentItem.title || ''}

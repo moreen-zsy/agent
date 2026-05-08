@@ -6,7 +6,7 @@
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { A2UIStore, AgentConversation, SurfaceMessageBinder } from '@a2ui/core';
-import { A2UIChatMessage } from '@a2ui/react-render';
+import { A2UIRenderer } from '@a2ui/react-render';
 import { HttpAgent } from '@ag-ui/client';
 import { A2UIMiddleware } from '@ag-ui/a2ui-middleware';
 import { useAuth } from '../context/AuthContext.js';
@@ -185,7 +185,7 @@ export function AgentTest() {
       },
       onToolCallEndEvent: () => {
         const tc = currentToolCallRef.current;
-        if (tc && tc.name !== 'render_a2ui') {
+        if (tc && tc.name !== 'render_a2ui' && tc.name !== 'generate_a2ui') {
           conversation.addToolCall(tc.id, tc.name, tc.args);
         }
         currentToolCallRef.current = null;
@@ -194,7 +194,7 @@ export function AgentTest() {
         const tcId = (event as any).toolCallId;
         const content = (event as any).content;
         const tcName = toolCallNamesRef.current.get(tcId);
-        if (tcName === 'render_a2ui') return;
+        if (tcName === 'render_a2ui' || tcName === 'generate_a2ui') return;
         if (tcId) {
           conversation.addToolResult(tcId, typeof content === 'string' ? content : JSON.stringify(content));
         }
@@ -350,24 +350,24 @@ export function AgentTest() {
                     {msg.content}
                   </div>
                 ) : (
-                  <A2UIChatMessage
-                    messageId={msg.id}
-                    surfaceId={msg.surfaceId}
-                    content={msg.content}
-                    store={store}
-                    isLoading={isLoading && !msg.content && !msg.surfaceId}
-                    className="space-y-3 min-w-[200px]"
-                    textRenderer={(content) => (
+                  <div className="space-y-3 min-w-[200px]">
+                    {/* 文本内容在上方 */}
+                    {msg.content ? (
                       <div className="bg-gray-100 text-gray-800 rounded-lg px-3 py-2 text-sm">
-                        <Streamdown>{content}</Streamdown>
+                        <Streamdown>{msg.content}</Streamdown>
                       </div>
-                    )}
-                    loadingRenderer={() => (
+                    ) : isLoading && !msg.surfaceId ? (
                       <div className="bg-gray-100 rounded-lg px-3 py-2 text-sm text-gray-500">
                         思考中...
                       </div>
+                    ) : null}
+                    {/* A2UI Surface 在下方（避免完成后推动上方文本） */}
+                    {msg.surfaceId && (
+                      <div className="rounded-xl overflow-hidden border border-gray-200 bg-white shadow-sm">
+                        <A2UIRenderer surfaceId={msg.surfaceId} store={store} />
+                      </div>
                     )}
-                  />
+                  </div>
                 )}
               </div>
             </div>
