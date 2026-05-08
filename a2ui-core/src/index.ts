@@ -11,6 +11,10 @@ export { TreeBuilder } from './tree-builder.js';
 export { A2UIStore } from './store.js';
 export { DataModelStore } from './data-model.js';
 
+// Agent 对话管理
+export { AgentConversation, type AgentMessage } from './agent-conversation.js';
+export { SurfaceMessageBinder } from './surface-binder.js';
+
 // Zod Catalog 系统
 export {
   defineCatalog,

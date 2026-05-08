@@ -16,5 +16,8 @@ export { useCatalog } from './hooks/useCatalog.js';
 // Catalog
 export { standardCatalog, CatalogRegistry, defaultRegistry, STANDARD_CATALOG_ID } from './catalog/standard-catalog.js';
 
+// 聊天消息渲染组件
+export { A2UIChatMessage, type A2UIChatMessageProps } from './chat-message.js';
+
 // 组件（可直接使用）
 export * from './components/index.js';
