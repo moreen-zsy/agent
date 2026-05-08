@@ -16,7 +16,8 @@
     "@ag-ui/a2ui-middleware": "catalog:agui",
     "lucide-react": "catalog:react",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "streamdown": "catalog:"
   },
   "devDependencies": {
     "@types/react": "catalog:",

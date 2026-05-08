@@ -1,22 +1,45 @@
 /**
- * Agent 实时测试面板 — 逐步排查版
+ * Agent 实时测试面板 — 重构版
+ * 核心逻辑抽离到 @a2ui/core (AgentConversation, SurfaceMessageBinder)
+ * 和 @a2ui/react-render (A2UIChatMessage)
  */
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { A2UIStore } from '@a2ui/core';
-import { A2UIRenderer } from '@a2ui/react-render';
+import { A2UIStore, AgentConversation, SurfaceMessageBinder } from '@a2ui/core';
+import { A2UIChatMessage } from '@a2ui/react-render';
 import { HttpAgent } from '@ag-ui/client';
 import { A2UIMiddleware } from '@ag-ui/a2ui-middleware';
 import { useAuth } from '../context/AuthContext.js';
 import { LoginModal } from './LoginModal.js';
 import { Send, Bot, User, LogIn, LogOut } from 'lucide-react';
+import { Streamdown } from 'streamdown';
+import 'streamdown/styles.css';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  id: string;
+  surfaceId?: string;
 }
 
 const AGENT_URL = 'http://localhost:3000/api/agent/stream';
+
+// 辅助函数：找到最后一条 user 消息之后的第一条 assistant 消息的索引
+function findAssistantAfterLastUser(prev: ChatMessage[]): number {
+  let lastUserIdx = -1;
+  for (let i = prev.length - 1; i >= 0; i--) {
+    if (prev[i].role === 'user') {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  for (let i = lastUserIdx + 1; i < prev.length; i++) {
+    if (prev[i].role === 'assistant') {
+      return i;
+    }
+  }
+  return -1;
+}
 
 const A2UI_CATALOG_SCHEMA = {
   catalogId: 'https://a2ui.org/specification/v0_9/basic_catalog.json',
@@ -48,19 +71,28 @@ export function AgentTest() {
   const { token, user, isLoggedIn, login, logout } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
 
+  // ========== @a2ui/core 层 ==========
   const [store] = useState(() => new A2UIStore({
     onUserAction: (action) => {
-      console.log('[AgentTest] Action:', action);
       pendingUserActionRef.current = action;
     },
   }));
+  const [conversation] = useState(() => new AgentConversation());
+  const [binder] = useState(() => new SurfaceMessageBinder());
+
+  // ========== UI 状态 ==========
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [appType, setAppType] = useState<'food' | 'campus'>('food');
-  const [surfaceId, setSurfaceId] = useState<string>('chat-surface');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // ========== 临时状态（订阅事件处理） ==========
+  const currentMsgIdRef = useRef<string>('');
+  const currentToolCallRef = useRef<{ id: string; name: string; args: string } | null>(null);
+  const toolCallNamesRef = useRef<Map<string, string>>(new Map());
+
+  // ========== HttpAgent ==========
   const agent = useMemo(() => {
     const headers: Record<string, string> = {};
     if (token) {
@@ -71,10 +103,10 @@ export function AgentTest() {
       headers,
       initialMessages: [],
     });
+    // 服务端直接发送 ACTIVITY_SNAPSHOT，不再需要 A2UIMiddleware 拦截 render_a2ui
     const middleware = new A2UIMiddleware({
       schema: A2UI_CATALOG_SCHEMA,
-      injectA2UITool: true,
-      a2uiToolNames: ['render_a2ui'],
+      injectA2UITool: false,
     });
     httpAgent.use(middleware);
     return httpAgent;
@@ -88,53 +120,129 @@ export function AgentTest() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // ========== 订阅 AGUI 事件 ==========
   useEffect(() => {
     const unsubscribe = agent.subscribe({
       onRunStartedEvent: () => setIsLoading(true),
-      onRunFinishedEvent: () => setIsLoading(false),
+      onRunFinishedEvent: () => {
+        currentMsgIdRef.current = '';
+        currentToolCallRef.current = null;
+        setIsLoading(false);
+      },
       onRunErrorEvent: ({ event }) => {
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: `错误: ${(event as any).message}` },
+          { role: 'assistant', content: `错误: ${(event as any).message}`, id: `err-${Date.now()}` },
         ]);
         setIsLoading(false);
       },
       onTextMessageStartEvent: () => {
-        setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+        const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        currentMsgIdRef.current = msgId;
+        setMessages((prev) => [...prev, { role: 'assistant', content: '', id: msgId }]);
       },
       onTextMessageContentEvent: ({ event }) => {
+        const delta = (event as any).delta || '';
+        conversation.addAssistantText(delta);
+
         setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === 'assistant') {
-            return [...prev.slice(0, -1), { ...last, content: last.content + (event as any).delta }];
+          // 优先用 currentMsgIdRef 定位当前消息
+          if (currentMsgIdRef.current) {
+            const idx = prev.findIndex((m) => m.id === currentMsgIdRef.current);
+            if (idx !== -1) {
+              const updated = [...prev];
+              updated[idx] = { ...updated[idx], content: updated[idx].content + delta };
+              return updated;
+            }
           }
-          return [...prev, { role: 'assistant', content: (event as any).delta }];
+          // Fallback：找到最后一条 user 后的第一条 assistant
+          const existingIdx = findAssistantAfterLastUser(prev);
+          if (existingIdx !== -1) {
+            const updated = [...prev];
+            updated[existingIdx] = { ...updated[existingIdx], content: updated[existingIdx].content + delta };
+            return updated;
+          }
+          // 兜底：创建新消息
+          const msgId = `msg-${Date.now()}`;
+          currentMsgIdRef.current = msgId;
+          return [...prev, { role: 'assistant', content: delta, id: msgId }];
         });
+      },
+      onToolCallStartEvent: ({ event }) => {
+        const tcId = (event as any).toolCallId;
+        const tcName = (event as any).toolCallName;
+        if (tcId && tcName) {
+          currentToolCallRef.current = { id: tcId, name: tcName, args: '' };
+          toolCallNamesRef.current.set(tcId, tcName);
+        }
+      },
+      onToolCallArgsEvent: ({ event }) => {
+        const tcId = (event as any).toolCallId;
+        const delta = (event as any).delta || '';
+        if (currentToolCallRef.current && currentToolCallRef.current.id === tcId) {
+          currentToolCallRef.current.args += delta;
+        }
+      },
+      onToolCallEndEvent: () => {
+        const tc = currentToolCallRef.current;
+        if (tc && tc.name !== 'render_a2ui') {
+          conversation.addToolCall(tc.id, tc.name, tc.args);
+        }
+        currentToolCallRef.current = null;
+      },
+      onToolCallResultEvent: ({ event }) => {
+        const tcId = (event as any).toolCallId;
+        const content = (event as any).content;
+        const tcName = toolCallNamesRef.current.get(tcId);
+        if (tcName === 'render_a2ui') return;
+        if (tcId) {
+          conversation.addToolResult(tcId, typeof content === 'string' ? content : JSON.stringify(content));
+        }
       },
       onActivitySnapshotEvent: ({ event }) => {
         const activityType = (event as any).activityType;
-        if (activityType === 'a2ui-surface') {
-          const operations = (event as any).content?.a2ui_operations;
-          if (Array.isArray(operations)) {
-            for (const msg of operations) {
-              if (!msg) continue;
-              store.processMessage(msg);
-              if ('createSurface' in msg) {
-                setSurfaceId(msg.createSurface.surfaceId);
-              }
-            }
-          }
+        if (activityType !== 'a2ui-surface') return;
+
+        const operations = (event as any).content?.a2ui_operations;
+        if (!Array.isArray(operations)) return;
+
+        const createOp = operations.find((op: any) => op?.createSurface);
+        const originalSurfaceId = createOp?.createSurface?.surfaceId;
+        if (!originalSurfaceId) return;
+
+        // 获取当前消息 ID（如果 TEXT_MESSAGE_START 未触发则创建占位）
+        let msgId = currentMsgIdRef.current;
+        if (!msgId) {
+          msgId = `msg-${Date.now()}`;
+          currentMsgIdRef.current = msgId;
+          setMessages((prev) => [...prev, { role: 'assistant', content: '', id: msgId }]);
         }
+
+        const uniqueSurfaceId = binder.bind(msgId, originalSurfaceId);
+        const mappedOps = binder.mapOperations(operations, msgId);
+
+        for (const op of mappedOps) {
+          if (op) store.processMessage(op);
+        }
+
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === msgId);
+          if (idx === -1) return prev;
+          const updated = [...prev];
+          updated[idx] = { ...updated[idx], surfaceId: uniqueSurfaceId };
+          return updated;
+        });
       },
     });
 
     return () => { unsubscribe.unsubscribe(); };
-  }, [agent, store]);
+  }, [agent, conversation, binder, store]);
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || isLoading) return;
 
-    setMessages((prev) => [...prev, { role: 'user', content: text }]);
+    conversation.addUserMessage(text);
+    setMessages((prev) => [...prev, { role: 'user', content: text, id: `user-${Date.now()}` }]);
     setInput('');
 
     agent.addMessage({
@@ -143,7 +251,10 @@ export function AgentTest() {
       content: text,
     });
 
-    const forwardedProps: Record<string, any> = { appType };
+    const forwardedProps: Record<string, any> = {
+      appType,
+      conversationHistory: conversation.getHistory(),
+    };
     if (pendingUserActionRef.current) {
       forwardedProps.a2uiAction = pendingUserActionRef.current;
     }
@@ -154,16 +265,28 @@ export function AgentTest() {
     } catch (err) {
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: `错误: ${(err as Error).message}` },
+        { role: 'assistant', content: `错误: ${(err as Error).message}`, id: `err-${Date.now()}` },
       ]);
       setIsLoading(false);
     }
   };
 
+  // 组件卸载时清理所有 Surface
+  useEffect(() => {
+    return () => {
+      for (const msg of messages) {
+        if (msg.surfaceId) {
+          store.clearSurface(msg.surfaceId);
+        }
+      }
+    };
+  }, []);
+
   return (
     <div className="flex h-full bg-gray-50">
-      {/* 左侧：对话面板 */}
-      <div className="w-1/2 flex flex-col border-r border-gray-200 bg-white">
+      {/* 单面板：对话区域 */}
+      <div className="flex-1 flex flex-col">
+        {/* 顶部控制栏 */}
         <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between bg-gray-50">
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-blue-600" />
@@ -210,9 +333,9 @@ export function AgentTest() {
               <p className="text-xs mt-1 opacity-60">当前模型: kimi-latest</p>
             </div>
           )}
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`flex items-start gap-2 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+          {messages.map((msg) => (
+            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`flex items-start gap-2 max-w-[90%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
                   msg.role === 'user' ? 'bg-blue-600' : 'bg-green-600'
                 }`}>
@@ -222,13 +345,30 @@ export function AgentTest() {
                     <Bot className="w-4 h-4 text-white" />
                   )}
                 </div>
-                <div className={`rounded-lg px-3 py-2 text-sm ${
-                  msg.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-800'
-                }`}>
-                  {msg.content || (msg.role === 'assistant' && isLoading && i === messages.length - 1 ? '思考中...' : '')}
-                </div>
+                {msg.role === 'user' ? (
+                  <div className="rounded-lg px-3 py-2 text-sm bg-blue-600 text-white">
+                    {msg.content}
+                  </div>
+                ) : (
+                  <A2UIChatMessage
+                    messageId={msg.id}
+                    surfaceId={msg.surfaceId}
+                    content={msg.content}
+                    store={store}
+                    isLoading={isLoading && !msg.content && !msg.surfaceId}
+                    className="space-y-3 min-w-[200px]"
+                    textRenderer={(content) => (
+                      <div className="bg-gray-100 text-gray-800 rounded-lg px-3 py-2 text-sm">
+                        <Streamdown>{content}</Streamdown>
+                      </div>
+                    )}
+                    loadingRenderer={() => (
+                      <div className="bg-gray-100 rounded-lg px-3 py-2 text-sm text-gray-500">
+                        思考中...
+                      </div>
+                    )}
+                  />
+                )}
               </div>
             </div>
           ))}
@@ -264,19 +404,6 @@ export function AgentTest() {
           >
             <Send className="w-4 h-4" />
           </button>
-        </div>
-      </div>
-
-      {/* 右侧：A2UI 渲染预览 */}
-      <div className="w-1/2 flex flex-col">
-        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <h2 className="text-lg font-semibold text-gray-800">A2UI 渲染预览</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Agent 返回的 v0.9 组件将在这里实时渲染</p>
-        </div>
-        <div className="flex-1 p-6 overflow-auto">
-          <div className="max-w-md mx-auto">
-            <A2UIRenderer surfaceId={surfaceId} store={store} />
-          </div>
         </div>
       </div>
 

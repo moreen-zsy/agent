@@ -12,6 +12,53 @@ import { generateA2UIComponents } from "../tools/generate-a2ui.js";
 import type { BaseEvent } from "@ag-ui/core";
 import { EventType } from "@ag-ui/core";
 import { randomUUID } from "@ag-ui/client";
+/**
+ * 从次级 LLM 的渲染结果构造 ACTIVITY_SNAPSHOT 事件
+ * 直接发给客户端，绕过 A2UIMiddleware 的 render_a2ui 解析
+ */
+function createA2UIActivitySnapshot(renderArgs: any): BaseEvent {
+  const surfaceId = renderArgs.surfaceId || "a2ui-surface";
+  const catalogId =
+    renderArgs.catalogId ||
+    "https://a2ui.org/specification/v0_9/basic_catalog.json";
+
+  const operations: any[] = [
+    {
+      version: "v0.9",
+      createSurface: {
+        surfaceId,
+        catalogId,
+      },
+    },
+    {
+      version: "v0.9",
+      updateComponents: {
+        surfaceId,
+        components: renderArgs.components || [],
+      },
+    },
+  ];
+
+  if (renderArgs.data) {
+    operations.push({
+      version: "v0.9",
+      updateDataModel: {
+        surfaceId,
+        data: renderArgs.data,
+      },
+    });
+  }
+
+  return {
+    type: EventType.ACTIVITY_SNAPSHOT,
+    messageId: randomUUID(),
+    activityType: "a2ui-surface",
+    content: {
+      a2ui_operations: operations,
+    },
+    replace: false,
+  } as BaseEvent;
+}
 
 /**
  * 将 AGUI 消息格式转换为 Vercel AI SDK v6 ModelMessage 格式
@@ -25,6 +72,7 @@ import { randomUUID } from "@ag-ui/client";
  *   tool: { role: 'tool', content: [{type: 'tool-result', toolCallId, toolName, output: {type: 'text', value}}] }
  */
 function convertToCoreMessages(messages: any[]): ModelMessage[] {
+  try {
   // 构建 toolCallId -> toolName 的映射，用于 tool 消息转换
   const toolNameMap = new Map<string, string>();
   for (const msg of messages) {
@@ -37,19 +85,31 @@ function convertToCoreMessages(messages: any[]): ModelMessage[] {
     }
   }
 
-  return messages
+  // 检测 @ag-ui/client HttpAgent 格式：assistant 缺少 content/toolCalls，tool 缺少 toolCallId
+  const isHttpAgentFormat = messages.some(
+    (m) => m.role === "assistant" && m.content === undefined && m.toolCalls === undefined && m.id,
+  );
+
+  const result = messages
     .filter((msg) => msg.role !== "activity")
-    .map((msg: any) => {
+    .map((msg: any, idx: number) => {
       switch (msg.role) {
-        case "user":
-          return { role: "user" as const, content: msg.content || "" };
+        case "user": {
+          // content 可能是数组（Vercel v6 格式已转换过），需要处理
+          const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+          return { role: "user" as const, content };
+        }
         case "system":
         case "developer":
-          return { role: "system" as const, content: msg.content || "" };
+          return { role: "system" as const, content: typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content) };
         case "assistant": {
+          // HttpAgent 格式：assistant tool-call 只有 id/role，跳过
+          if (isHttpAgentFormat && msg.content === undefined && !msg.toolCalls) {
+            return null;
+          }
           const parts: any[] = [];
-          // text part
-          if (msg.content) {
+          // text part：content 可能是字符串，也可能是已经转换过的 parts 数组
+          if (typeof msg.content === "string" && msg.content) {
             parts.push({ type: "text" as const, text: msg.content });
           }
           // tool-call parts
@@ -76,8 +136,13 @@ function convertToCoreMessages(messages: any[]): ModelMessage[] {
           };
         }
         case "tool": {
-          const tcId = msg.toolCallId;
-          const tcName = toolNameMap.get(tcId) || "unknown";
+          // HttpAgent 格式：tool 缺少 toolCallId，跳过
+          if (isHttpAgentFormat && !msg.toolCallId) {
+            return null;
+          }
+          // toolCallId 可能缺失，用 index 兜底避免 undefined
+          const tcId = msg.toolCallId || `fallback-${idx}`;
+          const tcName = toolNameMap.get(tcId) || msg.toolName || msg.name || "unknown";
           return {
             role: "tool" as const,
             content: [
@@ -85,15 +150,21 @@ function convertToCoreMessages(messages: any[]): ModelMessage[] {
                 type: "tool-result" as const,
                 toolCallId: tcId,
                 toolName: tcName,
-                output: { type: "text" as const, value: msg.content || "" },
+                output: { type: "text" as const, value: typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content) },
               },
             ],
           };
         }
         default:
-          return { role: "user" as const, content: msg.content || "" };
+          return { role: "user" as const, content: typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content) };
       }
-    });
+    })
+    .filter((m): m is NonNullable<typeof m> => m !== null);
+
+  return result as ModelMessage[];
+  } catch (err: any) {
+    throw new Error(`[convertToCoreMessages] 消息转换失败: ${err.message}`);
+  }
 }
 
 /**
@@ -159,7 +230,13 @@ export async function* runAgentStream(
     runId,
   };
 
-  const coreMessages = convertToCoreMessages(input.messages);
+  // 优先使用客户端传来的干净对话历史（绕过 HttpAgent 格式损坏问题）
+  const forwardedProps = input.forwardedProps;
+  const useCleanHistory = !!forwardedProps?.conversationHistory;
+  const sourceMessages = useCleanHistory
+    ? forwardedProps!.conversationHistory
+    : input.messages;
+  const coreMessages = convertToCoreMessages(sourceMessages);
 
   // 处理 forwardedProps 中的 UserAction（v0.9 action 格式）
   const userAction = input.forwardedProps?.a2uiAction;
@@ -205,7 +282,7 @@ export async function* runAgentStream(
 工具使用指引：
 - 查询数据（菜单、设施等）：先调用 query_* / get_* 业务工具获取数据
 - 渲染 UI：获取数据后，调用 generate_a2ui 工具（它会自动设计并生成合适的 A2UI v0.9 组件）
-- generate_a2ui 调用后，仅用一句话简要说明界面功能`;
+- generate_a2ui 调用后，用 Markdown 格式详细说明界面功能、数据亮点和操作指引。支持使用标题、列表、加粗等 Markdown 语法丰富表达`;
 
   const systemPrompt = contextEntries
     ? `${a2uiDirective}\n\n${contextEntries}`
@@ -238,10 +315,6 @@ export async function* runAgentStream(
     generate_a2ui: generateA2UITool,
   };
 
-  // 跟踪工具调用状态（仅用于日志观察）
-  let hasBusinessToolCall = false;
-  let hasRenderA2uiCall = false;
-
   try {
     const result = await streamText({
       model: kimi_model("kimi-for-coding"),
@@ -257,10 +330,19 @@ export async function* runAgentStream(
       { surfaceId: string; catalogId: string; components: any[]; data?: any }
     > | null = null;
     let generateA2UIToolCallId: string | null = null;
+    let generateA2UICompleted = false;
+    let generateA2UIHandled = false;
+    let generateA2UIResult: any = null;
     // 收集业务工具结果，传给次级 LLM 使用
     const toolResultsForSubLLM: Array<{ toolCallId: string; toolName: string; output: unknown }> = [];
 
     for await (const chunk of result.fullStream) {
+      // 检查次级 LLM 是否已完成但未发送 ACTIVITY_SNAPSHOT
+      if (generateA2UICompleted && !generateA2UIHandled && generateA2UIResult) {
+        yield createA2UIActivitySnapshot(generateA2UIResult);
+        generateA2UIHandled = true;
+      }
+
       switch (chunk.type) {
         case "tool-input-start": {
           const tcId = (chunk as any).toolCallId || (chunk as any).id || randomUUID();
@@ -295,7 +377,6 @@ export async function* runAgentStream(
 
           // generate_a2ui：启动次级 LLM 生成组件
           if (chunk.toolName === "generate_a2ui") {
-            hasRenderA2uiCall = true;
             generateA2UIToolCallId = tcId;
 
             yield {
@@ -331,10 +412,15 @@ export async function* runAgentStream(
                 ],
               })),
             );
+            // 启动次级 LLM，不阻塞主 LLM
             generateA2UIPromise = generateA2UIComponents({
               model: kimi_model("kimi-for-coding"),
               messages: messagesWithToolResults,
               appType: input.appType,
+            }).then((result) => {
+              generateA2UIResult = result;
+              generateA2UICompleted = true;
+              return result;
             });
 
             toolCallInputs.delete(tcId);
@@ -342,9 +428,6 @@ export async function* runAgentStream(
           }
 
           // 其他工具
-          if (chunk.toolName !== "render_a2ui") {
-            hasBusinessToolCall = true;
-          }
           yield {
             type: EventType.TOOL_CALL_START,
             toolCallId: tcId,
@@ -364,7 +447,7 @@ export async function* runAgentStream(
           const tcId = (chunk as any).toolCallId || randomUUID();
           const toolName = (chunk as any).toolName || "";
 
-          // generate_a2ui：等待次级 LLM 完成，伪造 render_a2ui 事件序列
+          // generate_a2ui：不等待次级 LLM，让它在后台运行
           if (
             toolName === "generate_a2ui" &&
             generateA2UIPromise &&
@@ -375,32 +458,16 @@ export async function* runAgentStream(
               toolCallId: tcId,
             };
 
-            const renderArgs = await generateA2UIPromise;
-            generateA2UIPromise = null;
-            generateA2UIToolCallId = null;
-
-            // 伪造 render_a2ui 的 TOOL_CALL 事件序列
-            const renderId = randomUUID();
-            yield {
-              type: EventType.TOOL_CALL_START,
-              toolCallId: renderId,
-              toolCallName: "render_a2ui",
-            };
-            yield {
-              type: EventType.TOOL_CALL_ARGS,
-              toolCallId: renderId,
-              delta: JSON.stringify(renderArgs),
-            };
-            yield {
-              type: EventType.TOOL_CALL_END,
-              toolCallId: renderId,
-            };
+            // 立即返回结果，让主 LLM 继续生成 Markdown
             yield {
               type: EventType.TOOL_CALL_RESULT,
               messageId: randomUUID(),
-              toolCallId: renderId,
-              content: JSON.stringify({ status: "rendered" }),
+              toolCallId: tcId,
+              content: JSON.stringify({ __generate_a2ui: true }),
             };
+
+            // 不重置 generateA2UIPromise，让它在后台运行
+            // 次级 LLM 完成后会通过循环顶部的检查发送 ACTIVITY_SNAPSHOT
             break;
           }
 
@@ -436,10 +503,24 @@ export async function* runAgentStream(
       };
     }
 
-    // 日志：观察 LLM 是否正确调用了 render_a2ui
-    if (hasBusinessToolCall && !hasRenderA2uiCall) {
-      console.warn("[a2ui-agent] LLM 调用了业务工具但未调用 render_a2ui，建议检查 prompt 或工具描述");
+    // 流结束后，如果次级 LLM 还未完成，等待它并发送 ACTIVITY_SNAPSHOT
+    if (!generateA2UIHandled && generateA2UIPromise) {
+      try {
+        const result = await generateA2UIPromise;
+        if (result) {
+          yield createA2UIActivitySnapshot(result);
+        }
+      } catch (err) {
+        yield createA2UIActivitySnapshot({
+          surfaceId: "error-surface",
+          components: [
+            { id: "root", component: "Column", children: ["error-text"] },
+            { id: "error-text", component: "Text", text: "UI 生成失败，请重试" },
+          ],
+        });
+      }
     }
+
   } catch (err) {
     yield {
       type: EventType.RUN_ERROR,
@@ -448,8 +529,8 @@ export async function* runAgentStream(
   } finally {
     try {
       await mcp.close();
-    } catch (err) {
-      console.error("[a2ui-agent] mcp.close() failed:", err);
+    } catch {
+      // mcp close error ignored
     }
   }
 

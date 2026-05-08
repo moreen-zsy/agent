@@ -152,13 +152,25 @@ export async function generateA2UIComponents(
 
     // 提取 render_a2ui 的参数
     let renderArgs: any = null;
+    let toolCallArgs: any = null;
+    let hasTextOutput = false;
+
     for await (const chunk of result.fullStream) {
       if (chunk.type === "tool-result") {
         renderArgs = (chunk as any).output;
+      } else if (chunk.type === "tool-call") {
+        // 备份：如果 tool-result 没有到达，尝试从 tool-call 的 args 提取
+        toolCallArgs = (chunk as any).args ?? (chunk as any).input ?? null;
+      } else if (chunk.type === "text-delta") {
+        hasTextOutput = true;
       }
     }
 
-    if (!renderArgs || !renderArgs.components) {
+    // 优先使用 tool-result 的 output，其次回退到 tool-call 的 args
+    const finalArgs = renderArgs ?? toolCallArgs;
+
+    if (!finalArgs || !finalArgs.components) {
+      console.error("[generate-a2ui] 未收到有效组件数据。有文本输出:", hasTextOutput, "tool-call args:", toolCallArgs);
       throw new Error("次级 LLM 未返回有效的组件数据");
     }
 
