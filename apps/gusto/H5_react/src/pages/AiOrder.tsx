@@ -16,11 +16,17 @@ import {
   Wine,
   User,
   X,
+  Package,
+  Phone,
+  MapPin,
+  FileText,
 } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/api';
 import type { Dish } from '@/types';
+import type { OrderWithHistory } from '@/api';
+import OrderStepper from '@/components/OrderStepper';
 import gsap from 'gsap';
 import { Streamdown } from 'streamdown';
 import 'streamdown/styles.css';
@@ -56,6 +62,9 @@ const A2UI_CATALOG_SCHEMA = {
     Switch: { description: '开关' },
     Chip: { description: '标签芯片' },
     Carousel: { description: '轮播图' },
+    OrderCard: { description: '订单卡片，展示订单号、状态、商品预览、总价和下单时间' },
+    DishDetail: { description: '菜品详情卡片，展示菜品图片、名称、价格、描述、配料和购物车按钮' },
+    OrderDetail: { description: '订单详情卡片，展示订单完整信息（商品列表、配送信息、总价）' },
   },
 };
 
@@ -186,6 +195,211 @@ function DishModal({ dish, onClose }: { dish: Dish; onClose: () => void }) {
   );
 }
 
+const orderStatusLabels: Record<string, string> = {
+  pending: '待确认',
+  confirmed: '已接单',
+  preparing: '制作中',
+  ready: '待配送',
+  delivering: '配送中',
+  delivered: '已送达',
+  cancelled: '已取消',
+};
+
+function OrderDetailModal({ orderId, onClose }: { orderId: string; onClose: () => void }) {
+  const { token } = useAuth();
+  const [data, setData] = useState<OrderWithHistory | null>(null);
+  const [loading, setLoading] = useState(true);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleEscape);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = '';
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!modalRef.current) return;
+    gsap.fromTo(
+      modalRef.current,
+      { opacity: 0, y: 30, filter: 'blur(10px)' },
+      { opacity: 1, y: 0, filter: 'blur(0px)', duration: 0.4, ease: 'power2.out' }
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!token || !orderId) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const result = await api.food.orders.getById(orderId, token);
+        if (cancelled) return;
+        if (result.data) setData(result.data);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [token, orderId]);
+
+  const order = data?.order;
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+      <div
+        ref={modalRef}
+        className="relative bg-[#111] rounded-3xl overflow-hidden max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-white/10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/50 flex items-center justify-center text-white/70 hover:text-white hover:bg-black/80 transition-all"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        {/* Header */}
+        <div className="p-6 border-b border-white/5 flex-shrink-0">
+          <h2 className="text-white font-display text-xl font-bold tracking-tight">订单详情</h2>
+          <p className="text-white/30 text-xs mt-1 font-display">{order?.orderNo}</p>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="w-8 h-8 text-brand-orange animate-spin" />
+            </div>
+          ) : !order ? (
+            <div className="text-center py-10 text-white/30">
+              <Package className="w-12 h-12 mx-auto mb-3" />
+              <p className="font-display text-sm">加载失败</p>
+            </div>
+          ) : (
+            <>
+              {/* Status Stepper */}
+              <div>
+                <h3 className="text-white/50 font-display text-xs uppercase tracking-wider mb-3">订单状态</h3>
+                <OrderStepper currentStatus={order.status} history={data?.history || []} />
+              </div>
+
+              {/* Order Info */}
+              <div className="space-y-3">
+                <h3 className="text-white/50 font-display text-xs uppercase tracking-wider">订单信息</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-white/30 text-xs">下单时间</p>
+                    <p className="text-white text-sm font-display mt-0.5">
+                      {order.createdAt ? new Date(order.createdAt).toLocaleString('zh-CN') : '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-white/30 text-xs">订单状态</p>
+                    <p className={`text-sm font-display font-medium mt-0.5 ${
+                      order.status === 'cancelled' ? 'text-red-400' : 'text-brand-orange'
+                    }`}>
+                      {orderStatusLabels[order.status] || order.status}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-white/30 text-xs">支付方式</p>
+                    <p className="text-white text-sm font-display mt-0.5">
+                      {order.paymentMethod === 'wechat' ? '微信支付'
+                        : order.paymentMethod === 'alipay' ? '支付宝'
+                        : order.paymentMethod || '未支付'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Delivery Info */}
+              {order.address && (
+                <div className="space-y-3">
+                  <h3 className="text-white/50 font-display text-xs uppercase tracking-wider">配送信息</h3>
+                  <div className="space-y-2">
+                    {order.contactName && (
+                      <div className="flex items-center gap-2">
+                        <User className="w-3.5 h-3.5 text-white/20" />
+                        <span className="text-white text-sm">{order.contactName}</span>
+                      </div>
+                    )}
+                    {order.phone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-3.5 h-3.5 text-white/20" />
+                        <span className="text-white text-sm">{order.phone}</span>
+                      </div>
+                    )}
+                    {order.address && (
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-3.5 h-3.5 text-white/20 flex-shrink-0 mt-0.5" />
+                        <span className="text-white text-sm">{order.address}</span>
+                      </div>
+                    )}
+                    {order.note && (
+                      <div className="flex items-start gap-2">
+                        <FileText className="w-3.5 h-3.5 text-white/20 flex-shrink-0 mt-0.5" />
+                        <span className="text-white/50 text-sm">备注：{order.note}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Items */}
+              <div className="space-y-3">
+                <h3 className="text-white/50 font-display text-xs uppercase tracking-wider">商品清单</h3>
+                <div className="space-y-3">
+                  {order.items?.map((item, idx) => (
+                    <div key={idx} className="flex items-center gap-3">
+                      {item.image ? (
+                        <img src={item.image} alt={item.name} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
+                          <Package className="w-4 h-4 text-white/20" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-display">{item.name}</p>
+                        <p className="text-white/30 text-xs mt-0.5">¥{item.price} x {item.quantity}</p>
+                      </div>
+                      <span className="text-white text-sm font-display">¥{(item.price * item.quantity).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="border-t border-white/5 pt-3 space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-white/40">商品总额</span>
+                    <span className="text-white font-display">¥{order.total}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-white/40">配送费</span>
+                    <span className="text-white font-display">¥0</span>
+                  </div>
+                  <div className="flex justify-between pt-2 border-t border-white/5">
+                    <span className="text-white font-display">实付款</span>
+                    <span className="text-brand-orange font-display text-lg font-bold">¥{order.total}</span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AiOrder() {
   const { addToCart } = useCart();
   const { token } = useAuth();
@@ -194,6 +408,7 @@ export default function AiOrder() {
   const [isLoading, setIsLoading] = useState(false);
   const [menuDishes, setMenuDishes] = useState<Dish[]>([]);
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -274,6 +489,24 @@ export default function AiOrder() {
           const dish = menuDishesRef.current.find((d) => d.id === dishId);
           if (dish) {
             addToCartRef.current(dish);
+          } else if (dishId) {
+            // 本地缓存未命中，回退到 API 查询
+            void api.food.menu.getById(dishId).then((result) => {
+              if (result.data) {
+                const d = result.data;
+                addToCartRef.current({
+                  id: String(d.id),
+                  name: String(d.name),
+                  description: String(d.description || ''),
+                  price: typeof d.price === 'number' ? d.price : parseFloat(String(d.price)),
+                  image: d.image ? String(d.image) : '',
+                  category: String(d.category) as Dish['category'],
+                  tags: d.tags?.map(String) || undefined,
+                  ingredients: d.ingredients?.map(String) || undefined,
+                  fullDescription: d.fullDescription ? String(d.fullDescription) : undefined,
+                });
+              }
+            });
           }
         }
         if (a?.name === 'view_dish_detail') {
@@ -281,7 +514,37 @@ export default function AiOrder() {
           const dish = menuDishesRef.current.find((d) => d.id === dishId);
           if (dish) {
             setSelectedDish(dish);
+          } else if (dishId) {
+            // 本地缓存未命中，回退到 API 查询
+            void api.food.menu.getById(dishId).then((result) => {
+              if (result.data) {
+                const d = result.data;
+                setSelectedDish({
+                  id: String(d.id),
+                  name: String(d.name),
+                  description: String(d.description || ''),
+                  price: typeof d.price === 'number' ? d.price : parseFloat(String(d.price)),
+                  image: d.image ? String(d.image) : '',
+                  category: String(d.category) as Dish['category'],
+                  tags: d.tags?.map(String) || undefined,
+                  ingredients: d.ingredients?.map(String) || undefined,
+                  fullDescription: d.fullDescription ? String(d.fullDescription) : undefined,
+                });
+              }
+            });
           }
+        }
+        if (a?.name === 'view_order_detail') {
+          const orderId = a.context?.orderId;
+          if (orderId) {
+            setSelectedOrderId(orderId);
+          }
+          // view_order_detail 已通过 OrderDetailModal 直接展示，不需要再发送到服务端
+          return;
+        }
+        if (a?.name === 'view_dish_detail') {
+          // view_dish_detail 已通过 DishModal 直接展示，不需要再发送到服务端
+          return;
         }
         pendingUserActionRef.current = action as any;
       },
@@ -456,39 +719,26 @@ export default function AiOrder() {
 
     const forwardedProps: Record<string, any> = {
       appType: 'food',
-      conversationHistory: conversation.getHistory(),
+      conversationHistory: conversation.getHistoryForLLM(),
     };
     if (pendingUserActionRef.current) {
       forwardedProps.a2uiAction = pendingUserActionRef.current;
     }
 
     // Build lightweight menu context for the LLM
-    const menuContext = menuDishesRef.current.map((d) => ({
-      id: d.id,
-      name: d.name,
-      price: d.price,
-      category: d.category,
-      description: d.description,
-      tags: d.tags,
-    }));
+    // 使用易读格式，让 LLM 能直接从列表中找到菜品 id
+    const menuContextLines = menuDishesRef.current.map(
+      (d) => `id: ${d.id}, name: ${d.name}, price: ${d.price}, category: ${d.category}`
+    );
+    const menuContextText = menuContextLines.join('\n');
 
     try {
       await agent.runAgent({
         forwardedProps,
         context: [
           {
-            value: JSON.stringify(menuContext),
-            description: '当前餐厅菜单数据（包含菜品ID、名称、价格、分类、描述和标签）',
-          },
-          {
-            value:
-              '你是 Gusto 高端餐厅的智能点餐助手。帮用户推荐菜品、回答菜品相关问题。' +
-              '当用户想点餐或看菜品时，使用 render_a2ui 工具生成精美的菜品展示卡片。' +
-              '卡片结构建议：Column 包含 Image(菜品图)、Text(名称，usageHint=h3)、Text(价格)、Text(描述，usageHint=caption)、Button(加入购物车，variant=primary)。' +
-              'Button 的 action 必须设置为: { event: { name: "add_to_cart", context: { dishId: "菜品ID" } } }。' +
-              '图片路径使用菜单中菜品对应的 image 字段。' +
-              '如果用户已登录，可以帮他完成下单；如果未登录，提示用户先登录。',
-            description: '角色指令与工具使用说明',
+            value: menuContextText,
+            description: '【菜品ID速查表】以下每行是一个菜品，包含 id 和 name。当用户询问特定菜品（如"介绍一下古典鸡尾酒"）时，必须从此表中找到对应 id，直接调用 get_dish_detail(id=xxx)，然后 generate_a2ui(scenario="dish_detail")。严禁调用 query_menu。',
           },
         ],
       });
@@ -660,7 +910,7 @@ export default function AiOrder() {
                         ) : null}
                         {/* A2UI Surface */}
                         {msg.surfaceId && (
-                          <div className="dark rounded-xl overflow-hidden">
+                          <div className="dark rounded-xl overflow-hidden w-full">
                             <A2UIRenderer surfaceId={msg.surfaceId} store={store} />
                           </div>
                         )}
@@ -730,6 +980,9 @@ export default function AiOrder() {
       {/* Dish Detail Modal */}
       {selectedDish && (
         <DishModal dish={selectedDish} onClose={() => setSelectedDish(null)} />
+      )}
+      {selectedOrderId && (
+        <OrderDetailModal orderId={selectedOrderId} onClose={() => setSelectedOrderId(null)} />
       )}
     </div>
   );

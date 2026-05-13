@@ -1,17 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
-import { ShoppingBag, Menu, X, User, LogOut } from 'lucide-react';
+import { ShoppingBag, Menu, X, User, LogOut, ChevronDown, Package, Settings } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 
 export default function Header() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const { totalItems, toggleCart } = useCart();
   const { user, logout, openLoginModal } = useAuth();
   const location = useLocation();
 
-  const isOrderPage = location.pathname === '/order' || location.pathname === '/ai-order';
+  const isAppPage =
+    location.pathname === '/order' ||
+    location.pathname === '/ai-order' ||
+    location.pathname.startsWith('/orders') ||
+    location.pathname.startsWith('/profile');
 
   useEffect(() => {
     const handleScroll = () => {
@@ -19,6 +25,17 @@ export default function Header() {
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Close user menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const scrollToSection = (id: string) => {
@@ -57,7 +74,7 @@ export default function Header() {
 
           {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-10">
-            {isOrderPage ? (
+            {isAppPage ? (
               <>
                 <Link
                   to="/"
@@ -119,17 +136,49 @@ export default function Header() {
           {/* Right Actions */}
           <div className="flex items-center gap-4">
             {user ? (
-              <div className="hidden md:flex items-center gap-3">
-                <span className="text-white/70 text-xs font-display">
-                  {user.name || user.email}
-                </span>
+              <div className="hidden md:block relative" ref={userMenuRef}>
                 <button
-                  onClick={logout}
-                  className="p-2 text-white/50 hover:text-white transition-colors"
-                  title="退出登录"
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center gap-2 text-white/70 hover:text-white text-xs uppercase tracking-widest font-display transition-colors"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <div className="w-7 h-7 rounded-full bg-brand-orange/20 flex items-center justify-center">
+                    <User className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="max-w-[100px] truncate">{user.name || user.email}</span>
+                  <ChevronDown className={`w-3 h-3 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
+
+                {userMenuOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-[#111] border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50">
+                    <Link
+                      to="/profile"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="flex items-center gap-3 px-4 py-3 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-display"
+                    >
+                      <Settings className="w-4 h-4" />
+                      个人资料
+                    </Link>
+                    <Link
+                      to="/orders"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="flex items-center gap-3 px-4 py-3 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-display"
+                    >
+                      <Package className="w-4 h-4" />
+                      我的订单
+                    </Link>
+                    <div className="border-t border-white/5" />
+                    <button
+                      onClick={() => {
+                        logout();
+                        setUserMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-white/40 hover:text-red-400 hover:bg-white/5 transition-colors text-sm font-display"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      退出登录
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <button
@@ -194,8 +243,26 @@ export default function Header() {
             onClick={() => setMobileMenuOpen(false)}
             className="text-white text-2xl font-display tracking-tight"
           >
-            AI 点餐
+            AI点餐
           </Link>
+          {user && (
+            <>
+              <Link
+                to="/orders"
+                onClick={() => setMobileMenuOpen(false)}
+                className="text-white text-2xl font-display tracking-tight"
+              >
+                我的订单
+              </Link>
+              <Link
+                to="/profile"
+                onClick={() => setMobileMenuOpen(false)}
+                className="text-white text-2xl font-display tracking-tight"
+              >
+                个人中心
+              </Link>
+            </>
+          )}
           <button
             onClick={() => {
               handleCartClick();

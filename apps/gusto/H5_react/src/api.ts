@@ -35,14 +35,14 @@ export interface Dish {
   id: string;
   name: string;
   description: string;
-  fullDescription: string | null;
+  fullDescription?: string;
   price: number;
-  image: string | null;
+  image?: string;
   category: string;
-  tags: string[] | null;
-  ingredients: string[] | null;
-  available: boolean | null;
-  createdAt: string | null;
+  tags?: string[];
+  ingredients?: string[];
+  available?: boolean;
+  createdAt?: string;
 }
 
 export interface OrderItem {
@@ -50,16 +50,68 @@ export interface OrderItem {
   name: string;
   quantity: number;
   price: number;
+  image?: string;
+}
+
+export type OrderStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'preparing'
+  | 'ready'
+  | 'delivering'
+  | 'delivered'
+  | 'cancelled';
+
+export interface OrderStatusHistory {
+  id: string;
+  orderId: string;
+  status: OrderStatus;
+  prevStatus?: string;
+  message?: string;
+  createdAt: string;
 }
 
 export interface Order {
   id: string;
   userId: string;
+  orderNo: string;
   items: OrderItem[];
   total: string;
-  status: string;
-  address: string | null;
-  createdAt: string | null;
+  status: OrderStatus;
+  address?: string;
+  phone?: string;
+  contactName?: string;
+  note?: string;
+  deliveryType?: string;
+  estimatedTime?: string;
+  paymentStatus?: string;
+  paymentMethod?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface OrderWithHistory {
+  order: Order;
+  history: OrderStatusHistory[];
+}
+
+export interface UserAddress {
+  id: string;
+  userId: string;
+  label?: string;
+  address: string;
+  phone?: string;
+  contactName?: string;
+  isDefault?: boolean;
+  createdAt?: string;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name?: string;
+  phone?: string;
+  avatar?: string;
 }
 
 export const api = {
@@ -77,7 +129,14 @@ export const api = {
       getById: (id: string) => request<ApiResponse<Dish>>(`/api/food/menu/${id}`),
     },
     order: {
-      post: (body: { items: OrderItem[]; address?: string }, token?: string) =>
+      post: (body: {
+        items: OrderItem[];
+        address?: string;
+        phone?: string;
+        contactName?: string;
+        note?: string;
+        deliveryType?: string;
+      }, token?: string) =>
         request<ApiResponse<Order>>('/api/food/order', {
           method: 'POST',
           body: JSON.stringify(body),
@@ -95,21 +154,65 @@ export const api = {
           headers: { Authorization: `Bearer ${token}` },
         });
       },
+      getById: (id: string, token: string) =>
+        request<ApiResponse<OrderWithHistory>>(`/api/food/orders/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      cancel: (id: string, token: string, reason?: string) =>
+        request<ApiResponse<Order>>(`/api/food/orders/${id}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify(reason ? { reason } : {}),
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      delete: (id: string, token: string) =>
+        request<ApiResponse<Order>>(`/api/food/orders/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+    },
+    addresses: {
+      get: (token: string) =>
+        request<ApiResponse<UserAddress[]>>(`/api/food/addresses`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      create: (token: string, body: Omit<UserAddress, 'id' | 'userId' | 'createdAt'>) =>
+        request<ApiResponse<UserAddress>>('/api/food/addresses', {
+          method: 'POST',
+          body: JSON.stringify(body),
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      update: (id: string, token: string, body: Partial<Omit<UserAddress, 'id' | 'userId' | 'createdAt'>>) =>
+        request<ApiResponse<UserAddress>>(`/api/food/addresses/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(body),
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      delete: (id: string, token: string) =>
+        request<ApiResponse<UserAddress>>(`/api/food/addresses/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }),
     },
   },
   auth: {
     register: (body: { email: string; name: string }) =>
-      request<ApiResponse<{ token: string; user: { id: string; email: string; name: string | null } }>>('/api/auth/register', {
+      request<ApiResponse<{ token: string; user: User }>>('/api/auth/register', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
     login: (body: { email: string }) =>
-      request<ApiResponse<{ token: string; user: { id: string; email: string; name: string | null } }>>('/api/auth/login', {
+      request<ApiResponse<{ token: string; user: User }>>('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
     me: (token: string) =>
-      request<ApiResponse<{ user: { id: string; email: string } }>>('/api/auth/me', {
+      request<ApiResponse<{ user: User }>>('/api/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    updateProfile: (token: string, body: { name?: string; phone?: string; avatar?: string }) =>
+      request<ApiResponse<{ user: User }>>('/api/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify(body),
         headers: { Authorization: `Bearer ${token}` },
       }),
   },

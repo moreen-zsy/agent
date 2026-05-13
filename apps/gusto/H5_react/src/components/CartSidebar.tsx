@@ -1,15 +1,14 @@
-import { X, Plus, Minus, Trash2, ShoppingBag, Loader2 } from 'lucide-react';
+import { X, Plus, Minus, Trash2, ShoppingBag } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useEffect, useRef, useState } from 'react';
-import { api } from '@/api';
-import { toast } from 'sonner';
+import OrderConfirmModal from './OrderConfirmModal';
 
 export default function CartSidebar() {
   const { items, isOpen, closeCart, totalPrice, updateQuantity, removeFromCart, clearCart } = useCart();
-  const { token } = useAuth();
+  const { user } = useAuth();
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -24,6 +23,15 @@ export default function CartSidebar() {
       document.body.style.overflow = '';
     };
   }, [isOpen, closeCart]);
+
+  const handleOpenConfirm = () => {
+    if (!user) {
+      closeCart();
+      // Let parent handle login modal via auth context
+      return;
+    }
+    setConfirmOpen(true);
+  };
 
   return (
     <>
@@ -142,44 +150,10 @@ export default function CartSidebar() {
               </span>
             </div>
             <button
-              onClick={async () => {
-                setSubmitting(true);
-                try {
-                  const orderItems = items.map(item => ({
-                    dishId: item.dish.id,
-                    name: item.dish.name,
-                    quantity: item.quantity,
-                    price: item.dish.price,
-                  }));
-
-                  const result = await api.food.order.post({
-                    items: orderItems,
-                  }, token || undefined);
-
-                  if (result.success) {
-                    toast.success('订单已提交！感谢您的订购。');
-                    clearCart();
-                    closeCart();
-                  } else {
-                    toast.error(result.error?.message || '下单失败');
-                  }
-                } catch {
-                  toast.error('网络错误，请稍后重试');
-                } finally {
-                  setSubmitting(false);
-                }
-              }}
-              disabled={submitting}
-              className="w-full py-4 bg-brand-orange text-white font-display font-semibold text-sm uppercase tracking-widest rounded-xl hover:bg-brand-orange/90 transition-all hover:shadow-glow active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              onClick={handleOpenConfirm}
+              className="w-full py-4 bg-brand-orange text-white font-display font-semibold text-sm uppercase tracking-widest rounded-xl hover:bg-brand-orange/90 transition-all hover:shadow-glow active:scale-[0.98] flex items-center justify-center gap-2"
             >
-              {submitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  提交中...
-                </>
-              ) : (
-                '确认下单'
-              )}
+              确认下单
             </button>
             <p className="text-white/30 text-xs text-center font-serif">
               预计制作时间 20-30 分钟
@@ -187,6 +161,13 @@ export default function CartSidebar() {
           </div>
         )}
       </div>
+
+      {/* Order Confirm Modal */}
+      <OrderConfirmModal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onNavigateAway={closeCart}
+      />
     </>
   );
 }
