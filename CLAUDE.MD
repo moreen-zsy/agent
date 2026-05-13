@@ -104,7 +104,7 @@ d:/agent/
 │   │   └── types.ts         # AgentInput 类型
 │   ├── mcp/                 # MCP Servers（业务领域隔离）
 │   │   ├── food-mcp/        # 点餐领域 MCP Server
-│   │   │   └── src/index.ts # 7 个工具（菜单/订单管理）
+│   │   │   └── src/index.ts # 9 个工具（菜单/订单管理）
 │   │   └── campus-mcp/      # 校园领域 MCP Server
 │   │       └── src/index.ts # 8 个工具（设施/预约/缴费）
 │   ├── package.json
@@ -286,12 +286,23 @@ const tools = await client.tools(); // ToolSet，直接传给 streamText
 
 | 领域         | 工具数 | 公开工具                                  | 需认证工具                                                                                                                     |
 | ------------ | ------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `food-mcp`   | 7      | `query_menu`, `get_dish_detail`           | `place_order`, `get_orders`, `get_order_detail`, `update_order_status`, `cancel_order`                                         |
+| `food-mcp`   | 9      | `query_menu`, `search_dish`, `get_dish_detail` | `place_order`, `get_orders`, `get_order_detail`, `update_order_status`, `cancel_order`, `get_user_addresses` |
 | `campus-mcp` | 8      | `query_facilities`, `get_facility_detail` | `book_facility`, `get_reservations`, `update_reservation`, `cancel_reservation`, `pay_fee`, `query_payments`, `update_payment` |
 
 MCP Server 通过 `A2UI_API_BASE` 环境变量调用 a2ui-server 的 REST API，认证工具需传入 `token` 参数（JWT）。
 
-**3. 独立 CLI 客户端（`a2ui-agent/src/mcp-client.ts`）**
+**3. 工具职责分离（`query_menu` vs `search_dish`）**
+
+为避免 LLM 在"浏览菜单"和"搜索特定菜品"之间混淆，`food-mcp` 将菜单查询拆分为两个工具：
+
+| 工具 | 用途 | 参数 |
+| ---- | ---- | ---- |
+| `query_menu` | 浏览全部菜单列表，当用户想看菜单、找吃的时调用 | `category`, `search`, `page`, `pageSize`（均可选） |
+| `search_dish` | 搜索特定菜品，当用户提到具体菜品名称时调用 | `dishName`（必填） |
+
+主 LLM 的 system prompt 中通过示例明确区分两者的使用场景，确保用户说"有什么好吃的"时调用 `query_menu`，说"介绍一下古典鸡尾酒"时调用 `search_dish`。
+
+**4. 独立 CLI 客户端（`a2ui-agent/src/mcp-client.ts`）**
 
 用于本地调试 MCP 工具链，支持多 MCP 同时连接：
 
@@ -311,7 +322,7 @@ bun run a2ui-agent/src/mcp-client.ts
 | --------------- | ----------------------------- | ------------------------------- |
 | 工具定义位置    | a2ui-agent 内部               | 独立 MCP Server 进程            |
 | 与后端 API 关系 | 直接 `fetch()` localhost:3000 | 通过 MCP stdio 协议调用         |
-| 工具数量        | food 4 个 / campus 4 个       | food 7 个 / campus 8 个         |
+| 工具数量        | food 4 个 / campus 4 个       | food 9 个 / campus 8 个         |
 | JWT 认证        | 无                            | 完整支持（token 参数）          |
 | LLM 可见 schema | 简单 description              | Zod schema 自动生成 JSON Schema |
 | 热更新          | 需重启 server                 | MCP Server 独立部署即可更新     |
@@ -345,7 +356,13 @@ bun run a2ui-agent/src/mcp-client.ts
 
 ```typescript
 // generate_a2ui 触发时，非阻塞启动次级 LLM
-generateA2UIPromise = generateA2UIComponents({ model, messages, appType }).then(
+// 传入 scenario（由主 LLM 工具调用推断）和 sessionCache（避免重复数据获取）
+generateA2UIPromise = generateA2UIComponents({
+  model, messages, appType,
+  scenario,           // "menu" | "dish_detail" | "orders" | "order_detail" | "place_order"
+  toolResults,        // 当前轮次业务工具结果
+  sessionCache,       // 会话级数据缓存
+}).then(
   (result) => {
     generateA2UICompleted = true;
     generateA2UIResult = result;
@@ -373,6 +390,22 @@ if (!generateA2UIHandled && generateA2UIPromise) {
 - 通过 `extractToolData()` 从对话历史的 tool-result 中提取业务数据，注入 system prompt
 - `toolChoice: {type: "tool", toolName: "render_a2ui"}` 确保 LLM 必须调用工具，不输出闲聊文本
 - 返回降级组件（错误提示 Column+Text）当组件生成失败时
+- **智能场景转换**：当 `search_dish` 返回单个菜品时，自动将场景从 `menu` 转换为 `dish_detail`，直接渲染 `DishDetail` 组件而非 `Carousel`
+- **服务端数据构造**：`buildDataFromToolResults()` 根据 scenario 和 toolResults 直接构造 data 模型（如 `{dishes: [...]}`、`{dish: {...}}`），避免让 LLM 输出大量业务数据，减少 Token 消耗和响应延迟
+
+**3. 会话级数据缓存（`sessionCache`）**
+
+`runAgentStream` 中维护 `sessionCache: Map<string, any>`，同一 session 内已获取的数据（如菜单列表、订单列表）会被缓存：
+
+```typescript
+const sessionCache = new Map<string, any>();
+// tool result 处理时按 toolName 缓存
+sessionCache.set("query_menu", parsedData);
+// 生成 UI 时优先从缓存读取
+const data = sessionCache.get("query_menu") || findToolData(toolResults, "query_menu");
+```
+
+这使得多轮对话中重复请求（如"返回菜单"、"查看我的订单"）无需重新调用 MCP，直接从缓存构造 UI，响应时间从 5-8 秒降至毫秒级。
 
 ## 消息级 A2UI 渲染
 
