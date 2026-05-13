@@ -3,7 +3,7 @@
  * 支持自动播放和手动切换
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { A2UIComponentProps, ActionProps } from './types.js';
 
 export interface CarouselItem {
@@ -19,8 +19,18 @@ export interface CarouselProps extends A2UIComponentProps, ActionProps {
   interval?: number;
 }
 
+function normalizeCarouselItems(raw: any): CarouselItem[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  return arr.map((item: any) => ({
+    id: item?.id || '',
+    imageUrl: item?.imageUrl || item?.image || '',
+    title: item?.title || item?.name || '',
+    description: item?.description || (item?.price ? `¥${item.price}` : ''),
+  }));
+}
+
 export function A2UICarousel({
-  items = [],
+  items: rawItems = [],
   autoPlay = true,
   interval = 3000,
   action,
@@ -29,6 +39,9 @@ export function A2UICarousel({
   _componentId,
 }: CarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
+
+  // 字段映射：支持原始数据 {image, name, price} 和规范化数据 {imageUrl, title}
+  const items = useMemo(() => normalizeCarouselItems(rawItems), [rawItems]);
 
   const goToNext = useCallback(() => {
     setCurrentIndex((prev) => (prev + 1) % items.length);
@@ -118,7 +131,7 @@ export function A2UICarousel({
       {/* 指示器 */}
       {items.length > 1 && (
         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
-          {items.map((_, index) => (
+          {items.map((_item: CarouselItem, index: number) => (
             <button
               key={index}
               onClick={() => setCurrentIndex(index)}

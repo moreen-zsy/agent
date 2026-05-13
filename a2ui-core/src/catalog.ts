@@ -418,5 +418,47 @@ export const standardCatalogV09: A2UICatalog = {
       description: '标签/芯片组件。',
       events: ['press'],
     },
+    Carousel: {
+      props: z.object({
+        items: z.union([
+          z.array(z.object({
+            imageUrl: dynamicStringSchema,
+            title: dynamicStringSchema.optional(),
+            description: dynamicStringSchema.optional(),
+            id: z.string().optional(),
+          })),
+          z.object({ path: z.string() }),
+        ]),
+        autoPlay: z.boolean().optional(),
+        interval: z.number().optional(),
+        action: actionSchema.optional(),
+        accessibility: accessibilitySchema,
+      }),
+      description: '轮播图组件，用于展示图片列表（如菜单菜品），支持自动播放和点击事件。items 可以是数组字面量（每项含 imageUrl、title、description、id），也可以是 {path: "/dishes"} 数据绑定（推荐，减少 LLM 输出量）。',
+      events: ['press'],
+    },
+    OrderCard: {
+      props: z.object({
+        order: dynamicValueSchema,
+        accessibility: accessibilitySchema,
+      }),
+      description: '订单卡片组件，展示订单号、状态、商品预览、总价和下单时间。order 字段为订单对象，包含 id, orderNo, status, items, total, createdAt。点击卡片触发 view_order_detail 事件。',
+      events: ['press'],
+    },
+    DishDetail: {
+      props: z.object({
+        dish: dynamicValueSchema,
+        accessibility: accessibilitySchema,
+      }),
+      description: '菜品详情组件，展示菜品图片、名称、价格、描述、配料和购物车按钮。dish 字段为菜品对象，包含 id, name, price, description, fullDescription, image, ingredients, tags。点击购物车按钮触发 add_to_cart 事件。',
+      events: ['press'],
+    },
+    OrderDetail: {
+      props: z.object({
+        order: dynamicValueSchema,
+        accessibility: accessibilitySchema,
+      }),
+      description: '订单详情组件，展示订单完整信息（商品列表、配送信息、总价）。order 字段为订单对象，包含 id, orderNo, status, items, total, createdAt, address, phone, contactName, note。',
+    },
   },
 };

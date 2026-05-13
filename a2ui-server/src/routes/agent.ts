@@ -11,7 +11,7 @@
 import { Elysia } from 'elysia';
 import { z } from 'zod';
 import { EventEncoder } from '@ag-ui/encoder';
-import { EventType } from '@ag-ui/core';
+import { EventType, type BaseEvent } from '@ag-ui/core';
 import { randomUUID } from '@ag-ui/client';
 import { streamAgent } from '../services/agent-service.js';
 import { writeFileSync } from 'fs';
@@ -113,31 +113,49 @@ export const agentRoutes = new Elysia({ prefix: '/api/agent' })
             tools: normalizedTools as any,
           });
 
+          let eventCount = 0;
           for await (const event of agentStreamRef) {
+            eventCount++;
             const encoded = encoder.encode(event);
+            try {
+              if (typeof encoded === 'string') {
+                controller.enqueue(new TextEncoder().encode(encoded));
+              } else {
+                controller.enqueue(encoded);
+              }
+            } catch (enqueueErr) {
+              // controller 已关闭（客户端断开），优雅退出循环
+              console.log(`[agent-route] controller 已关闭，停止发送事件 (已发 ${eventCount} 个)`);
+              break;
+            }
+          }
+          console.log(`[agent-route] 流正常结束，共发送 ${eventCount} 个事件`);
+        } catch (err) {
+          console.error(`[agent-route] 流处理异常:`, err);
+          try {
+            const errorEvent = {
+              type: EventType.RUN_ERROR,
+              message: (err as Error).message,
+            };
+            const encoded = encoder.encode(errorEvent);
             if (typeof encoded === 'string') {
               controller.enqueue(new TextEncoder().encode(encoded));
             } else {
               controller.enqueue(encoded);
             }
+          } catch {
+            // controller 已关闭，忽略错误事件
           }
-        } catch (err) {
-          const errorEvent = {
-            type: EventType.RUN_ERROR,
-            message: (err as Error).message,
-          };
-          const encoded = encoder.encode(errorEvent);
-          if (typeof encoded === 'string') {
-            controller.enqueue(new TextEncoder().encode(encoded));
-          } else {
-            controller.enqueue(encoded);
+        } finally {
+          try {
+            controller.close();
+          } catch {
+            // 可能已被取消关闭
           }
         }
-        controller.close();
       },
       cancel() {
-        // 客户端断开时主动关闭 generator，触发 finally 中的 mcp.close()
-        agentStreamRef?.return?.();
+        // 客户端断开时不中断 generator，让它自然结束
       },
     });
 

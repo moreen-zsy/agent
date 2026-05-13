@@ -38,7 +38,7 @@ export function A2UIList({
   const alignClass = ALIGN_MAP[alignment] || 'items-stretch';
 
   return (
-    <div className={`flex ${dirClass} ${alignClass} gap-2`}>
+    <div className={`flex ${dirClass} ${alignClass} gap-2 w-full`}>
       {children}
     </div>
   );

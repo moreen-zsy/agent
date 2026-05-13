@@ -91,7 +91,7 @@ const server = new McpServer({
 server.registerTool(
   "query_facilities",
   {
-    description: "查询校园设施列表，支持按类型筛选、搜索、分页。获取数据后，必须调用 render_a2ui 工具将结果渲染为 A2UI v0.9 UI 组件。",
+    description: "查询校园设施列表，支持按类型筛选、搜索、分页。当用户想查看校园设施、找自习室/健身房/实验室时调用此工具。",
     inputSchema: {
       type: z
         .enum(["gym", "study_room", "lab"])
@@ -119,7 +119,7 @@ server.registerTool(
 server.registerTool(
   "get_facility_detail",
   {
-    description: "根据设施 ID 获取详情。获取数据后，必须调用 render_a2ui 工具将结果渲染为 A2UI v0.9 UI 组件。",
+    description: "根据设施 ID 获取详情。当用户想了解某个具体设施的详细信息时调用此工具。",
     inputSchema: {
       id: z.string().min(1).describe("设施 UUID"),
     },

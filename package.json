@@ -22,9 +22,11 @@
     "test": "bun --filter './a2ui-agent' --filter './a2ui-core' --filter './a2ui-render/*' test",
     "typecheck": "bun --filter '*' typecheck",
     "lint": "bun --filter '*' lint",
-    "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down",
-    "docker:logs": "docker-compose logs -f postgres"
+    "docker:start": "docker-compose up -d",
+    "docker:stop": "docker-compose down",
+    "docker:reset": "docker-compose down -v && docker-compose up -d",
+    "docker:logs": "docker-compose logs -f postgres",
+    "docker:psql": "docker exec -it a2ui-postgres psql -U a2ui"
   },
   "devDependencies": {
     "@types/bun": "catalog:",

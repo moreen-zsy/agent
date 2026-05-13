@@ -253,7 +253,7 @@ export function AgentTest() {
 
     const forwardedProps: Record<string, any> = {
       appType,
-      conversationHistory: conversation.getHistory(),
+      conversationHistory: conversation.getHistoryForLLM(),
     };
     if (pendingUserActionRef.current) {
       forwardedProps.a2uiAction = pendingUserActionRef.current;

@@ -41,9 +41,13 @@ export class A2UIBuffer {
         surface.components.set(comp.id, comp);
       }
     } else if ('updateDataModel' in message) {
-      const { surfaceId, path, value } = message.updateDataModel;
+      const { surfaceId, path, value, data } = message.updateDataModel;
       const surface = this.getOrCreateSurface(surfaceId);
-      this.dataStore.update(surfaceId, path, value);
+      if (data !== undefined) {
+        this.dataStore.update(surfaceId, '/', data);
+      } else {
+        this.dataStore.update(surfaceId, path, value);
+      }
       surface.dataModel = this.dataStore.getModel(surfaceId);
     } else if ('createSurface' in message) {
       const { surfaceId, catalogId, theme, sendDataModel } = message.createSurface;

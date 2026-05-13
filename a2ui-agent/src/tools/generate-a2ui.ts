@@ -1,53 +1,43 @@
 import { streamText, jsonSchema, type ModelMessage } from "ai";
 import type { LanguageModel } from "ai";
 
-const uiDesignerSystemPrompt = `你是 A2UI UI 设计专家。你的唯一任务是根据用户请求和业务数据，调用 render_a2ui 工具生成合适的 A2UI v0.9 组件。
+const SCENARIO_MAP: Record<string, string> = {
+  menu: '生成 Carousel 轮播图。items 使用 { path: "/dishes" } 数据绑定，不要展开数组。必须加 action:{event:{name:"view_dish_detail"}}，data:{dishes:[...]}',
+  dish_detail: '生成 DishDetail 组件。dish 字段传入完整菜品对象（含 id, name, price, description, fullDescription, image, ingredients, tags），data:{dish:{...}}',
+  orders: '生成 OrderCard 列表。data:{orders:[...]}，每个 order 用 {path:"/orders/索引"}，将所有 OrderCard 放入一个 Column 中',
+  order_detail: '生成 OrderDetail 组件。order 字段传入完整订单对象，data:{order:{...}}',
+  place_order: '生成 Text("下单成功！") + OrderCard 组件。data:{order:{...}}',
+};
 
-可用组件及属性（扁平格式，属性直接放在组件对象上）：
+const uiDesignerSystemPrompt = `你是 A2UI UI 设计专家。根据用户请求和业务数据，调用 render_a2ui 工具生成 A2UI v0.9 组件。
+
+【可用组件】（扁平格式，属性直接放组件对象上）：
 - Column: { component: "Column", children: ["id1", ...], justify?: "start"|"center"|"end"|"spaceBetween"|"spaceAround"|"spaceEvenly", align?: "start"|"center"|"end"|"stretch" }
 - Row: { component: "Row", children: ["id1", ...], justify?, align? }
 - List: { component: "List", children: ["id1", ...], direction?: "vertical"|"horizontal", align?: "start"|"center"|"end"|"stretch" }
-- Card: { component: "Card", child: "id" } — 单个子组件引用
+- Card: { component: "Card", child: "id" }
 - Text: { component: "Text", text: string, variant?: "h1"|"h2"|"h3"|"h4"|"h5"|"caption"|"body" }
-- Image: { component: "Image", url: string, fit?: "contain"|"cover"|"fill", usageHint?: "icon"|"avatar"|"smallFeature"|"mediumFeature"|"largeFeature"|"header" }
+- Image: { component: "Image", url: string, fit?: "contain"|"cover"|"fill" }
 - Button: { component: "Button", child: "id", variant?: "primary"|"secondary"|"text", action?: { event: { name, context? } } }
-- Icon: { component: "Icon", name: string }
-- Chip: { component: "Chip", label: string }
-- Divider: { component: "Divider" }
-- Spacer: { component: "Spacer" }
-- TextField: { component: "TextField", label: string, text?: string }
-- CheckBox: { component: "CheckBox", label: string, checked?: boolean }
-- ChoicePicker: { component: "ChoicePicker", options: [{label, value}], selections?: string[] }
-- Slider: { component: "Slider", value: number, minValue?: number, maxValue?: number }
-- Switch: { component: "Switch", value: boolean }
-- Tabs: { component: "Tabs", tabItems: [{ title: string, child: "id" }] }
-- Modal: { component: "Modal", entryPointChild: "id", contentChild: "id" }
-- Carousel: { component: "Carousel", items: [{ imageUrl: string, title?: string, description?: string }], autoPlay?: boolean, interval?: number }
-  示例：{ component: "Carousel", id: "menu-carousel", items: [{ imageUrl: "/dish-burger.jpg", title: "经典牛肉汉堡", description: "¥38 | 精选澳洲牛肉" }, ...] }
+- Icon, Chip, Divider, Spacer
+- Carousel: { component: "Carousel", items: { path: "/dishes" }, autoPlay?, interval?, action? } — items 推荐用 {path} 数据绑定，不要展开数组
+- OrderCard: { component: "OrderCard", order: { path: string } | OrderObject }
+- DishDetail: { component: "DishDetail", dish: { path: string } | DishObject }（含购物车按钮）
+- OrderDetail: { component: "OrderDetail", order: { path: string } | OrderObject }
 
-设计原则：
-1. 每个组件必须包含 component 字段（如 "component": "Column"），不能用 type 或其他字段名
-2. 数据密集（菜单列表、设施列表等）→ 用 List + Card 组合展示
-3. 单一对象详情（菜品详情、设施详情等）→ 用 Column + Text/Image 组合
-4. 表单输入 → 用 TextField、ChoicePicker、Button 组合
-5. 所有组件使用扁平格式：属性直接放在组件对象上，不要用 props 嵌套
-6. children 必须通过 ID 字符串数组引用，不要嵌套对象
-7. Card 使用单数 child 引用，不是 children
-8. Image 使用 url 属性，不是 src；图片 URL 必须使用业务数据中的真实路径（如 "/dish-burger.jpg"），不要用占位图
-9. Text 使用 variant 属性设置样式，不是 style
-10. 根组件 id 必须为 "root"
-11. 【强制】菜单展示必须使用 Carousel 轮播图组件。items 数组必须包含 API 返回的【全部】菜品，严禁只选部分。每个 item 必须使用 API 返回的准确数据：id 用菜品对象的 id 字段，imageUrl 用菜品对象的 image 字段（如 "/dish-burger.jpg"），title 用 name 字段，description 用 "¥{price} | {description}" 格式。严禁编造、修改或省略任何菜品数据
-12. Carousel items 映射规则：严格按 API 返回的 data 数组顺序，每项映射为 { id: item.id, imageUrl: item.image, title: item.name, description: "¥" + item.price + " | " + item.description }，禁止自行改写名称、价格或图片路径
-12a. Carousel 支持点击交互：必须给 Carousel 添加 action 属性 action: { event: { name: "view_dish_detail" } }，这样用户点击轮播图时会触发查看详情事件
-13. catalogId 使用 "https://a2ui.org/specification/v0_9/basic_catalog.json"
-14. 【排版规范】标题、副标题等核心文案必须通过父级 Column 的 align: "center" 实现水平居中，确保视觉焦点在画面中央；描述文字如需居中同理。避免仅靠 Text 自身样式做居中对齐，永远通过布局容器控制整体排版
-15. 【菜品展示】展示单一菜品时，只生成一个 Card 组件，Card 内包含该菜品的图片和一个购物车图标按钮即可，不要添加名称、价格、描述等其他元素。Button 的 child 必须是 Icon(name: "shoppingCart")，严禁使用 Text。
-    完整示例：
-    { id: "detail-card", component: "Card", child: "detail-col" }
-    { id: "detail-col", component: "Column", children: ["dish-img", "cart-btn"] }
-    { id: "dish-img", component: "Image", url: "/dish.jpg", fit: "cover" }
-    { id: "cart-btn", component: "Button", child: "cart-icon", variant: "primary", action: { event: { name: "add_to_cart", context: { dishId: "123" } } } }
-    { id: "cart-icon", component: "Icon", name: "shoppingCart" }`;
+【设计原则】
+1. 根组件 id 必须为 "root"
+2. catalogId 固定为 "https://a2ui.org/specification/v0_9/basic_catalog.json"
+3. children 用 ID 字符串数组引用，禁止嵌套对象；Card 用单数 child
+4. Image 用 url 属性，必须使用真实业务数据 URL
+5. 标题通过父级 Column 的 align: "center" 实现居中
+
+【场景规则】
+1. 菜单(query_menu)：Carousel 展示全部菜品，items 每项 { id, imageUrl, title, description: "¥"+price+" | "+desc }，必须加 action:{event:{name:"view_dish_detail"}}，data:{dishes:[...]}
+2. 菜品详情(get_dish_detail)：DishDetail 组件，dish 传完整对象，data:{dish:{...}}
+3. 我的订单(get_orders)：OrderCard 列表，data:{orders:[...]}，每个 order:{path:"/orders/索引"}
+4. 订单详情(get_order_detail)：OrderDetail 组件，data:{order:{...}}
+5. 下单成功(place_order)：Text("下单成功！") + OrderCard，data:{order:{...}}`;
 
 export interface GenerateA2UIInput {
   /** 已初始化的语言模型实例（由调用方传入） */
@@ -56,67 +46,124 @@ export interface GenerateA2UIInput {
   messages: ModelMessage[];
   /** 应用类型，影响组件风格 */
   appType: string;
+  /** 当前场景标识（由主 LLM 传入，直接决定生成什么组件） */
+  scenario?: "menu" | "dish_detail" | "orders" | "order_detail" | "place_order";
   /** 当前轮次已完成的业务工具结果（不混入 messages，避免结构错误） */
   toolResults?: Array<{ toolCallId: string; toolName: string; output: unknown }>;
+  /** Session 级数据缓存，优先从缓存读取避免重复调用 MCP */
+  sessionCache?: Map<string, any>;
 }
 
 /**
- * 从对话历史的 tool result 中提取业务数据，注入 system prompt。
+ * 从当前轮次的 tool result 中提取业务数据，注入 system prompt。
+ * 注意：只使用 extraToolResults（当前轮次），不使用历史 messages 中的 tool result，
+ * 避免历史数据（如旧订单）干扰当前请求（如查菜单）。
  */
+/**
+ * 根据 scenario 和 toolResults 直接构造 data 模型
+ * 避免让 LLM 输出大量业务数据
+ */
+function buildDataFromToolResults(
+  scenario: GenerateA2UIInput["scenario"],
+  toolResults?: GenerateA2UIInput["toolResults"],
+  sessionCache?: Map<string, any>,
+): Record<string, any> | undefined {
+  if (!scenario) return undefined;
+  // 允许 toolResults 为空，只要 sessionCache 有数据即可
+  const hasToolResults = toolResults && toolResults.length > 0;
+  const hasCache = sessionCache && sessionCache.size > 0;
+  if (!hasToolResults && !hasCache) return undefined;
+
+  const findOutput = (name: string): any => {
+    // 优先从 sessionCache 读取
+    if (sessionCache?.has(name)) {
+      return sessionCache.get(name);
+    }
+
+    const tr = toolResults?.find((t) => t.toolName === name);
+    if (!tr) return null;
+
+    let output: any = tr.output;
+
+    // MCP 工具返回 { content: [{ type: "text", text: "JSON" }] }
+    if (output && typeof output === "object" && Array.isArray(output.content)) {
+      const textItem = output.content.find((c: any) => c.type === "text");
+      if (textItem?.text) {
+        try {
+          output = JSON.parse(textItem.text);
+        } catch {
+          output = textItem.text;
+        }
+      }
+    }
+
+    // 统一提取实际数据
+    // 1. API 标准响应: { data: [...] }
+    // 2. 本地工具: { success: true, items: [...] }
+    if (output && typeof output === "object") {
+      if (output.data !== undefined) return output.data;
+      if (output.items !== undefined) return output.items;
+    }
+
+    return output;
+  };
+
+  switch (scenario) {
+    case "menu": {
+      const data = findOutput("query_menu");
+      return data ? { dishes: data } : undefined;
+    }
+    case "dish_detail": {
+      // 优先从 get_dish_detail 获取，其次是 search_dish 的结果
+      const data = findOutput("get_dish_detail") || findOutput("search_dish");
+      return data ? { dish: data } : undefined;
+    }
+    case "orders": {
+      const data = findOutput("get_orders");
+      return data ? { orders: data } : undefined;
+    }
+    case "order_detail": {
+      const data = findOutput("get_order_detail");
+      if (!data) return undefined;
+      // get_order_detail 返回 {order: {...}, history: [...]}，提取内层 order
+      const orderData = data.order !== undefined ? data.order : data;
+      return { order: orderData };
+    }
+    case "place_order": {
+      const data = findOutput("place_order");
+      return data ? { order: data } : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
 function extractToolData(
-  messages: ModelMessage[],
+  _messages: ModelMessage[],
   extraToolResults?: Array<{ toolCallId: string; toolName: string; output: unknown }>,
 ): string {
   const results: string[] = [];
 
-  for (const msg of messages) {
-    if (msg.role !== "tool") continue;
-
-    const content = (msg as any).content;
-
-    // SDK v6: content 是数组，每项是 ToolResultPart
-    if (Array.isArray(content)) {
-      for (const part of content) {
-        if (part.type !== "tool-result") continue;
-        const output = part.output ?? part.result;
-        let text = "";
-        if (typeof output === "string") {
-          text = output;
-        } else if (output && typeof output === "object") {
-          text = output.value || JSON.stringify(output);
-        }
-        if (text) results.push(text);
-      }
-      continue;
-    }
-
-    // 备用：content 直接是字符串
-    if (typeof content === "string" && content) {
-      results.push(content);
-      continue;
-    }
-
-    // 备用：检查 msg 上的 result/output 字段
-    for (const key of ["result", "output", "content"]) {
-      const val = (msg as any)[key];
-      if (typeof val === "string" && val) {
-        results.push(val);
-        break;
-      }
-    }
-  }
-
-  // 追加当前轮次的业务工具结果（不混入 messages 以避免结构错误）
+  // 只使用当前轮次的业务工具结果
   if (extraToolResults) {
     for (const tr of extraToolResults) {
-      const text =
-        typeof tr.output === "string" ? tr.output : JSON.stringify(tr.output);
+      let output: any = tr.output;
+      // MCP 工具返回 { content: [{ type: "text", text: "..." }] }，提取实际文本
+      if (output && typeof output === "object" && Array.isArray(output.content)) {
+        const textItem = output.content.find((c: any) => c.type === "text");
+        if (textItem?.text) {
+          output = textItem.text;
+        }
+      }
+      const text = typeof output === "string" ? output : JSON.stringify(output);
       if (text) results.push(text);
     }
   }
 
   if (results.length === 0) return "";
-  return `\n\n【可用业务数据】（必须严格使用以下数据，严禁编造）：\n${results.join("\n---\n")}`;
+  const output = `\n\n【可用业务数据】（必须严格使用以下数据，严禁编造）：\n${results.join("\n---\n")}`;
+  console.log(`[generate-a2ui] extractToolData 提取数据，条目数: ${results.length}, 总长度: ${output.length} 字符`);
+  return output;
 }
 
 /**
@@ -131,19 +178,26 @@ export async function generateA2UIComponents(
   components: any[];
   data?: any;
 }> {
-  const { model, messages, appType, toolResults } = input;
+  const { model, messages, appType, scenario, toolResults, sessionCache } = input;
+
+  // 根据 scenario 直接确定组件，无需推理
+  const scenarioDirective = scenario
+    ? `\n\n【当前场景】${scenario} — 你必须直接生成以下组件，不要思考或分析：\n${SCENARIO_MAP[scenario]}\n注意：你只需要生成 components 数组，data 由服务端自动填充，不要在 render_a2ui 中传入 data 参数。`
+    : "";
 
   try {
-    const toolData = extractToolData(messages, toolResults);
+    const toolData = extractToolData([], toolResults);
+    const systemPrompt = `${uiDesignerSystemPrompt}${scenarioDirective}\n\n当前应用类型：${appType}${toolData}`;
+    console.log(`[generate-a2ui] streamText 启动，scene: ${scenario || "none"}, system prompt 长度: ${systemPrompt.length} 字符, messages 数量: ${messages.length}`);
 
     const result = await streamText({
       model,
-      system: `${uiDesignerSystemPrompt}\n\n当前应用类型：${appType}${toolData}`,
+      system: systemPrompt,
       messages: messages.filter((m) => m.role !== "system"),
       tools: {
         render_a2ui: {
           description:
-            "渲染 A2UI v0.9 组件。根据对话上下文生成合适的 UI 组件来展示数据。",
+            "渲染 A2UI v0.9 组件。你只需要生成 components 数组，数据模型(data)由服务端自动填充，不要传入 data。",
           inputSchema: jsonSchema({
             type: "object",
             properties: {
@@ -160,10 +214,6 @@ export async function generateA2UIComponents(
                 description:
                   "A2UI v0.9 组件数组（扁平格式）。root 组件 id 必须为 'root'，children 通过 ID 引用。",
               },
-              data: {
-                type: "object",
-                description: "可选的初始数据模型",
-              },
             },
             required: ["surfaceId", "catalogId", "components"],
             additionalProperties: false,
@@ -178,17 +228,32 @@ export async function generateA2UIComponents(
     let renderArgs: any = null;
     let toolCallArgs: any = null;
     let hasTextOutput = false;
+    let chunkCount = 0;
 
     for await (const chunk of result.fullStream) {
+      chunkCount++;
       if (chunk.type === "tool-result") {
+        console.log(`[generate-a2ui] 收到 tool-result chunk，output 类型: ${typeof (chunk as any).output}`);
         renderArgs = (chunk as any).output;
       } else if (chunk.type === "tool-call") {
+        console.log(`[generate-a2ui] 收到 tool-call chunk`);
         // 备份：如果 tool-result 没有到达，尝试从 tool-call 的 args 提取
-        toolCallArgs = (chunk as any).args ?? (chunk as any).input ?? null;
+        // AI SDK v6 中 args 可能是 JSON 字符串，需要解析
+        const raw = (chunk as any).args ?? (chunk as any).input ?? null;
+        if (typeof raw === "string") {
+          try {
+            toolCallArgs = JSON.parse(raw);
+          } catch {
+            toolCallArgs = raw;
+          }
+        } else {
+          toolCallArgs = raw;
+        }
       } else if (chunk.type === "text-delta") {
         hasTextOutput = true;
       }
     }
+    console.log(`[generate-a2ui] fullStream 结束，总 chunk 数: ${chunkCount}, hasTextOutput: ${hasTextOutput}, renderArgs: ${!!renderArgs}, toolCallArgs: ${!!toolCallArgs}`);
 
     // 优先使用 tool-result 的 output，其次回退到 tool-call 的 args
     const finalArgs = renderArgs ?? toolCallArgs;
@@ -198,14 +263,22 @@ export async function generateA2UIComponents(
       throw new Error("次级 LLM 未返回有效的组件数据");
     }
 
+    console.log(`[generate-a2ui] 成功生成组件，surfaceId: ${finalArgs.surfaceId}, components 数量: ${finalArgs.components?.length || 0}`);
+
+    // 服务端根据 scenario 和 toolResults 直接构造 data，避免 LLM 输出大量数据
+    const data = buildDataFromToolResults(scenario, toolResults, sessionCache);
+    if (data) {
+      console.log(`[generate-a2ui] 服务端构造 data，keys: ${Object.keys(data).join(", ")}`);
+    }
+
     return {
       surfaceId:
-        renderArgs.surfaceId || "a2ui-surface",
+        finalArgs.surfaceId || "a2ui-surface",
       catalogId:
-        renderArgs.catalogId ||
+        finalArgs.catalogId ||
         "https://a2ui.org/specification/v0_9/basic_catalog.json",
-      components: renderArgs.components,
-      data: renderArgs.data,
+      components: finalArgs.components,
+      data,
     };
   } catch (err) {
     console.error("[generate-a2ui] 次级 LLM 调用失败:", err);

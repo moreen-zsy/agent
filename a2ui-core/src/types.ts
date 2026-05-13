@@ -126,6 +126,7 @@ export interface UpdateDataModelMessage {
     surfaceId: string;
     path?: string;
     value?: any;
+    data?: any;
   };
 }
 

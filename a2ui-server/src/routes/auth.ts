@@ -10,6 +10,16 @@ import { eq } from 'drizzle-orm';
 import { config } from '../config.js';
 import { verifyToken } from '../middleware/auth.js';
 
+function stripUser(user: typeof users.$inferSelect) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    phone: user.phone,
+    avatar: user.avatar,
+  };
+}
+
 export const authRoutes = new Elysia({ prefix: '/api/auth', detail: { tags: ['Auth'] } })
   .post('/register', async ({ body }) => {
     const { email, name } = body;
@@ -27,7 +37,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth', detail: { tags: ['Au
       .setExpirationTime('7d')
       .sign(new TextEncoder().encode(config.JWT_SECRET));
 
-    return { success: true, data: { token, user: { id: user.id, email: user.email, name: user.name } } };
+    return { success: true, data: { token, user: stripUser(user) } };
   }, {
     body: t.Object({
       email: t.String({ format: 'email' }),
@@ -50,7 +60,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth', detail: { tags: ['Au
       .setExpirationTime('7d')
       .sign(new TextEncoder().encode(config.JWT_SECRET));
 
-    return { success: true, data: { token, user: { id: user.id, email: user.email, name: user.name } } };
+    return { success: true, data: { token, user: stripUser(user) } };
   }, {
     body: t.Object({
       email: t.String({ format: 'email' }),
@@ -59,11 +69,53 @@ export const authRoutes = new Elysia({ prefix: '/api/auth', detail: { tags: ['Au
   })
 
   .get('/me', async ({ headers }) => {
-    const user = await verifyToken(headers);
-    if (!user) {
+    const authUser = await verifyToken(headers);
+    if (!authUser) {
       return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
     }
-    return { success: true, data: { user } };
+
+    const rows = await coreDb.select().from(users).where(eq(users.id, authUser.id));
+    const user = rows[0];
+    if (!user) {
+      return { success: false, error: { code: 'NOT_FOUND', message: 'User not found' } };
+    }
+
+    return { success: true, data: { user: stripUser(user) } };
   }, {
     detail: { summary: 'Get current user info' },
+  })
+
+  .put('/profile', async ({ body, headers }) => {
+    const authUser = await verifyToken(headers);
+    if (!authUser) {
+      return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
+    }
+
+    const updateData: Record<string, unknown> = {};
+    if (body.name !== undefined) updateData.name = body.name;
+    if (body.phone !== undefined) updateData.phone = body.phone;
+    if (body.avatar !== undefined) updateData.avatar = body.avatar;
+    updateData.updatedAt = new Date();
+
+    const [updated] = await coreDb
+      .update(users)
+      .set(updateData)
+      .where(eq(users.id, authUser.id))
+      .returning();
+
+    if (!updated) {
+      return { success: false, error: { code: 'NOT_FOUND', message: 'User not found' } };
+    }
+
+    return {
+      success: true,
+      data: { user: stripUser(updated) },
+    };
+  }, {
+    body: t.Object({
+      name: t.Optional(t.String({ minLength: 1, maxLength: 255 })),
+      phone: t.Optional(t.String({ minLength: 1, maxLength: 20 })),
+      avatar: t.Optional(t.String()),
+    }),
+    detail: { summary: 'Update current user profile' },
   });

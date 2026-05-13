@@ -32,7 +32,7 @@ export function A2UIColumn({ children, justify = 'start', align = 'stretch' }: C
   const justifyClass = JUSTIFY_MAP[justify] || 'justify-start';
   const alignClass = ALIGN_MAP[align] || 'items-stretch';
   return (
-    <div className={`flex flex-col ${justifyClass} ${alignClass} gap-2`}>
+    <div className={`flex flex-col w-full ${justifyClass} ${alignClass} gap-2`}>
       {children}
     </div>
   );
