@@ -118,7 +118,7 @@ function getActiveToolsForIntent(
  */
 function buildMessagesWithBoundary(
   coreMessages: any[],
-  currentUserText: string
+  _currentUserText: string
 ): any[] {
   // 找到最后一条用户消息的索引
   let lastUserIndex = -1;
@@ -138,13 +138,17 @@ function buildMessagesWithBoundary(
   for (let i = 0; i < coreMessages.length; i++) {
     const msg = coreMessages[i];
     if (i === lastUserIndex) {
-      // 在最后一次用户消息前插入分隔标记
+      // 将边界提示合并到最后一个 user 消息中，避免插入独立 system 消息
+      //（某些 LLM 提供商不支持 system 消息被 user/assistant 分隔）
+      const boundary = '【以上是对话历史。以下是最新的用户请求，请严格根据这条消息的字面意图处理，不受上面历史对话影响。】\n\n';
+      const originalContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
       result.push({
-        role: 'system',
-        content: '【历史对话结束。以下是最新的用户请求，请严格根据这条消息的字面意图处理，不受上面历史对话影响。】',
+        ...msg,
+        content: boundary + originalContent,
       });
+    } else {
+      result.push(msg);
     }
-    result.push(msg);
   }
   return result;
 }
