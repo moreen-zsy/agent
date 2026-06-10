@@ -4,7 +4,7 @@
  * 原样流式输出 AGUI 标准事件流，A2UI 解析由客户端中间件处理
  */
 
-import { streamText, stepCountIs, type ModelMessage, jsonSchema } from "ai";
+import { streamText, stepCountIs, type ModelMessage, jsonSchema, tool } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { AgentInput } from "../types.js";
 import { buildBusinessTools } from "../tools/mcp-tools.js";
@@ -362,13 +362,16 @@ function normalizeMiddlewareTools(
 
     const normalized: Record<string, any> = { ...toolDef };
 
+    // AI SDK v6 要求使用 inputSchema 属性（而非 parameters）
     // 将原始 JSON Schema 参数转换为 jsonSchema 包装
-    const params = toolDef.parameters;
+    const params = toolDef.parameters ?? toolDef.inputSchema;
     if (params && typeof params === "object" && params.type === "object") {
-      normalized.parameters = jsonSchema({
+      normalized.inputSchema = jsonSchema({
         ...params,
         additionalProperties: params.additionalProperties ?? false,
       });
+      // 删除旧的 parameters 属性，避免混淆
+      delete normalized.parameters;
     }
 
     // 无 execute 的工具添加虚拟执行函数
@@ -568,10 +571,10 @@ export async function* runAgentStream(
 
   // generate_a2ui：包装工具，内部调用次级 LLM 强制生成 render_a2ui
   // 主 LLM 必须传入 scenario，明确告诉次级 LLM 当前场景，避免长思考
-  const generateA2UITool = {
+  const generateA2UITool = tool({
     description:
       "生成 A2UI v0.9 UI 组件。当你获取了业务数据需要展示时，必须调用此工具。调用时必须传入 scenario 参数，明确告知当前场景。不要直接调用 render_a2ui。",
-    parameters: jsonSchema({
+    inputSchema: jsonSchema({
       type: "object",
       properties: {
         scenario: {
@@ -584,8 +587,8 @@ export async function* runAgentStream(
       required: ["scenario"],
       additionalProperties: false,
     }),
-    execute: async (args: { scenario: string }) => ({ __generate_a2ui: true, scenario: args.scenario }),
-  };
+    execute: async (args: any) => ({ __generate_a2ui: true, scenario: args.scenario }),
+  });
 
   const allTools = {
     ...middlewareToolsWithoutRender,
