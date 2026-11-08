@@ -51,11 +51,27 @@ async function apiCall(path: string, options: ApiOptions = {}) {
     });
 
     const text = await res.text();
+    let parsed: any;
     try {
-      return JSON.parse(text);
+      parsed = JSON.parse(text);
     } catch {
       return { error: `非 JSON 响应 (${res.status})`, raw: text };
     }
+
+    // 新后端统一返回 { success, data } / { success, error }
+    // 这里解包 data，避免 LLM 看到多余嵌套
+    if (parsed && typeof parsed === "object" && "success" in parsed) {
+      if (parsed.success === false) {
+        return {
+          error: parsed.error?.message ?? `请求失败 (${res.status})`,
+          code: parsed.error?.code,
+        };
+      }
+      return parsed.data;
+    }
+
+    // 非统一格式（如旧接口直返数据）原样返回
+    return parsed;
   } catch (err) {
     return { error: `请求失败: ${(err as Error).message}`, path: url.toString() };
   }
@@ -109,7 +125,7 @@ server.registerTool(
     },
   },
   async ({ category, search, page, pageSize }) => {
-    const res = await apiCall("/api/food/menu", {
+    const res = await apiCall("/food/menu", {
       query: { category, search, page, pageSize },
     });
     return ok(res);
@@ -125,7 +141,7 @@ server.registerTool(
     },
   },
   async ({ dishName }) => {
-    const res = await apiCall("/api/food/menu", {
+    const res = await apiCall("/food/menu", {
       query: { search: dishName },
     });
     return ok(res);
@@ -141,7 +157,7 @@ server.registerTool(
     },
   },
   async ({ id }) => {
-    const res = await apiCall(`/api/food/menu/${encodeURIComponent(id)}`);
+    const res = await apiCall(`/food/menu/${encodeURIComponent(id)}`);
     return ok(res);
   },
 );
@@ -172,7 +188,7 @@ server.registerTool(
     },
   },
   async ({ items, address, phone, contactName, note, token }) => {
-    const res = await apiCall("/api/food/order", {
+    const res = await apiCall("/food/orders", {
       method: "POST",
       body: { items, address, phone, contactName, note },
       token: resolveToken(token),
@@ -200,6 +216,7 @@ server.registerTool(
           "confirmed",
           "preparing",
           "ready",
+          "delivering",
           "delivered",
           "cancelled",
         ])
@@ -209,7 +226,7 @@ server.registerTool(
     },
   },
   async ({ page, pageSize, status, token }) => {
-    const res = await apiCall("/api/food/orders", {
+    const res = await apiCall("/food/orders", {
       query: { page, pageSize, status },
       token: resolveToken(token),
     });
@@ -227,7 +244,7 @@ server.registerTool(
     },
   },
   async ({ id, token }) => {
-    const res = await apiCall(`/api/food/orders/${encodeURIComponent(id)}`, {
+    const res = await apiCall(`/food/orders/${encodeURIComponent(id)}`, {
       token: resolveToken(token),
     });
     return ok(res);
@@ -247,6 +264,7 @@ server.registerTool(
           "confirmed",
           "preparing",
           "ready",
+          "delivering",
           "delivered",
           "cancelled",
         ])
@@ -255,7 +273,7 @@ server.registerTool(
     },
   },
   async ({ id, status, token }) => {
-    const res = await apiCall(`/api/food/orders/${encodeURIComponent(id)}`, {
+    const res = await apiCall(`/food/orders/${encodeURIComponent(id)}/status`, {
       method: "PUT",
       body: { status },
       token: resolveToken(token),
@@ -273,7 +291,7 @@ server.registerTool(
     },
   },
   async ({ token }) => {
-    const res = await apiCall("/api/food/addresses", {
+    const res = await apiCall("/food/addresses", {
       token: resolveToken(token),
     });
     return ok(res);
@@ -284,15 +302,17 @@ server.registerTool(
   "cancel_order",
   {
     description:
-      "删除订单（仅订单创建者可操作）。需传入 JWT Token。",
+      "取消订单（仅订单创建者可操作）。需传入 JWT Token。与删除不同，取消会保留订单并写入 cancelled 状态。",
     inputSchema: {
       id: z.string().min(1).describe("订单 UUID"),
+      reason: z.string().optional().describe("取消原因（可选）"),
       token: z.string().optional().describe("JWT 认证 Token（可选，服务端自动注入）"),
     },
   },
-  async ({ id, token }) => {
-    const res = await apiCall(`/api/food/orders/${encodeURIComponent(id)}`, {
-      method: "DELETE",
+  async ({ id, reason, token }) => {
+    const res = await apiCall(`/food/orders/${encodeURIComponent(id)}/cancel`, {
+      method: "POST",
+      body: reason ? { reason } : {},
       token: resolveToken(token),
     });
     return ok(res);

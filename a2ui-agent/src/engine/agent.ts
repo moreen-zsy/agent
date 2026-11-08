@@ -12,16 +12,119 @@ import { generateA2UIComponents } from "../tools/generate-a2ui.js";
 import type { BaseEvent } from "@ag-ui/core";
 import { EventType } from "@ag-ui/core";
 import { randomUUID } from "@ag-ui/client";
+import { peekRuntime } from "../runtime.js";
+import { getCurrentRuntime } from "../runtime-registry.js";
+import {
+  prepareOrchestration,
+  triageToActiveTools,
+  finalizeOrchestration,
+  cacheIfEligible,
+  isDagModeEnabled,
+  runViaDag,
+} from "../orchestrator/bridge.js";
+import { PersistentSessionCache } from "../session/persistent-session-cache.js";
+
+/**
+ * 解析 AI 供应商配置
+ *
+ * 默认对接小米 MiMo 的 Anthropic 兼容端点；
+ * 通过环境变量覆盖，便于本地用其他兼容供应商调试。
+ *
+ * 需要的变量：
+ * - `MIMO_API_KEY`（必填）
+ * - `MIMO_URL`（可选，默认官方地址，**必须包含 /v1**，因为 Anthropic SDK 只追加 `/messages`）
+ * - `MIMO_MODEL`（可选，默认 mimo-v2.6-flash）
+ */
+function resolveModelConfig(): {
+  apiKey: string;
+  baseURL: string;
+  modelId: string;
+} {
+  const apiKey = process.env.MIMO_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "[a2ui-agent] MIMO_API_KEY is not set. Please add it to your .env file.",
+    );
+  }
+
+  return {
+    apiKey,
+    baseURL:
+      process.env.MIMO_URL || "https://token-plan-cn.xiaomimimo.com/anthropic/v1",
+    modelId: process.env.MIMO_MODEL || "mimo-v2.6-flash",
+  };
+}
 
 // Session 级别数据缓存：threadId -> toolName -> data
-// 避免同一 session 内重复调用 MCP 获取相同数据
+// V1.0：改为 Redis 持久化（进程重启不丢），未连接 Redis 时自动降级内存
 const sessionDataCache = new Map<string, Map<string, any>>();
 
 function getSessionCache(threadId: string): Map<string, any> {
-  if (!sessionDataCache.has(threadId)) {
-    sessionDataCache.set(threadId, new Map());
+  const existing = sessionDataCache.get(threadId);
+  if (existing) return existing;
+
+  // 惰性拿运行时（可能尚未初始化 Redis，此时为降级内存实现）
+  let cache: Map<string, any>;
+  try {
+    const runtime = getCurrentRuntime();
+    if (runtime?.redis.isHealthy) {
+      const persistent = new PersistentSessionCache(runtime.redis, threadId);
+      // 异步预热，不阻塞主流程
+      void persistent.hydrate();
+      cache = persistent;
+    } else {
+      cache = new Map();
+    }
+  } catch {
+    cache = new Map();
   }
-  return sessionDataCache.get(threadId)!;
+
+  sessionDataCache.set(threadId, cache);
+  return cache;
+}
+
+/**
+ * 根据已调用的工具序列 + 用户文本推断 A2UI 场景
+ *
+ * 用于主 LLM 调了工具却没触发 generate_a2ui 时的兜底。
+ * 返回 null 表示无法安全推断，不做兜底。
+ */
+function inferScenarioFromTools(
+  toolNames: string[],
+  userText: string,
+): "menu" | "dish_detail" | "orders" | "order_detail" | "place_order" | null {
+  const set = new Set(toolNames);
+
+  if (set.has("place_order")) return "place_order";
+  if (set.has("get_order_detail")) return "order_detail";
+  if (set.has("get_orders")) return "orders";
+
+  // 搜索单个菜品 → 详情
+  if (set.has("search_dish") || set.has("get_dish_detail")) {
+    return "dish_detail";
+  }
+
+  if (set.has("query_menu")) {
+    // 用户提到具体菜品时优先生成详情，否则展示菜单
+    if (/介绍|详情|是什么|多少钱|好吃吗|怎么样/.test(userText)) {
+      return "dish_detail";
+    }
+    return "menu";
+  }
+
+  return null;
+}
+
+/** 从 AGUI 消息 content（字符串或分段数组）中提取纯文本 */
+function extractText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part: any) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
 }
 
 /** 从 MCP/本地工具输出中提取实际数据 */
@@ -393,24 +496,46 @@ function normalizeMiddlewareTools(
 export async function* runAgentStream(
   input: AgentInput,
 ): AsyncGenerator<BaseEvent> {
-  const KIMI_API_KEY = process.env.KIMI_API_KEY;
-  if (!KIMI_API_KEY) {
-    throw new Error(
-      "[a2ui-agent] KIMI_API_KEY is not set. Please add it to your .env file.",
-    );
-  }
+  const modelConfig = resolveModelConfig();
 
-  const kimi_model = createAnthropic({
-    apiKey: KIMI_API_KEY,
-    baseURL: "https://api.kimi.com/coding/v1",
+  const provider = createAnthropic({
+    apiKey: modelConfig.apiKey,
+    baseURL: modelConfig.baseURL,
   });
+
+  const model = provider(modelConfig.modelId);
 
   const runId = randomUUID();
   const messageId = randomUUID();
   const threadId = input.threadId || runId;
+  const runStartedAt = Date.now();
 
-  // 获取 session 级数据缓存
+  // 获取 session 级数据缓存（V1.0：Redis 持久化）
   const sessionCache = getSessionCache(threadId);
+
+  // ── V1.0 会话内存：记录本轮用户输入，并在超出预算时异步压缩 ──
+  const runtime = getCurrentRuntime();
+  if (runtime?.redis.isHealthy) {
+    const lastUser = [...input.messages].reverse().find((m) => m.role === "user");
+    const userText = extractText(lastUser?.content);
+    if (userText) {
+      void (async () => {
+        try {
+          await runtime.session.touchMeta(threadId, {
+            userId: input.forwardedProps?.userId,
+          });
+          await runtime.session.appendMessage(threadId, "user", userText);
+
+          if (await runtime.session.shouldCompress(threadId)) {
+            const summarizer = runtime.createSummarizer(model);
+            await runtime.session.compress(threadId, summarizer.summarize);
+          }
+        } catch (err) {
+          console.warn("[memory] 会话记忆写入失败:", (err as Error).message);
+        }
+      })();
+    }
+  }
 
   // RUN_STARTED
   yield {
@@ -601,12 +726,142 @@ export async function* runAgentStream(
   const currentUserText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : '';
 
   // 意图分类 + 动态工具选择
-  const userIntent = classifyUserIntent(currentUserText);
+  const legacyIntent = classifyUserIntent(currentUserText);
   const allToolNames = Object.keys(allTools);
-  const activeTools = getActiveToolsForIntent(userIntent, allToolNames);
+
+  // ── V1.1 编排接管：Triage 取代硬编码意图分类 ──
+  const orchRuntime = getCurrentRuntime();
+  const orchestration = orchRuntime?.redis.isHealthy
+    ? await prepareOrchestration({
+        runtime: orchRuntime,
+        sessionId: threadId,
+        userId: input.forwardedProps?.userId,
+        domain: input.appType,
+        userText: currentUserText,
+        meta: {
+          hasCartItems: sessionCache.has("cart"),
+          isLoggedIn: !!userToken,
+          hasActivePlan: false,
+        },
+      }).catch((err) => {
+        console.warn(
+          "[orchestration] 前置阶段失败，回退旧逻辑:",
+          (err as Error).message,
+        );
+        return null;
+      })
+    : null;
+
+  const userIntent = legacyIntent;
+
+  // ── DAG 模式：由调度器强制执行「业务 Worker → UI 渲染」链路 ──
+  const dagMode = orchRuntime?.redis.isHealthy
+    ? await isDagModeEnabled(orchRuntime)
+    : false;
+
+  if (dagMode && orchRuntime && orchestration?.enabled && orchestration.triage) {
+    console.log(`[dag] 走 DAG 调度模式 triage=${orchestration.triage.taskType}`);
+
+    orchRuntime.gateway.registerTools(mcp.tools as any);
+
+    const dagToolResults: Array<{
+      toolCallId: string;
+      toolName: string;
+      output: unknown;
+    }> = [];
+
+    const dagOut = await runViaDag({
+      runtime: orchRuntime,
+      sessionId: threadId,
+      userText: currentUserText,
+      triage: orchestration.triage,
+      model,
+      messages: coreMessages,
+      appType: input.appType,
+      sessionCache,
+      toolResults: dagToolResults,
+      gateway: orchRuntime.gateway,
+    }).catch((err) => {
+      console.error("[dag] 执行失败:", (err as Error).message);
+      return null;
+    });
+
+    if (dagOut?.a2ui) {
+      // 发送一个简短的文本消息，保证客户端有内容
+      yield {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId,
+        role: "assistant" as const,
+      };
+      yield {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId,
+        delta: "已为您准备就绪。",
+      };
+      yield {
+        type: EventType.TEXT_MESSAGE_END,
+        messageId,
+      };
+
+      yield createA2UIActivitySnapshot(dagOut.a2ui);
+
+      await finalizeOrchestration({
+        runtime: orchRuntime,
+        sessionId: threadId,
+        userText: currentUserText,
+        triage: orchestration.triage,
+        a2ui: dagOut.a2ui,
+        durationMs: dagOut.durationMs,
+        cacheHits: 0,
+        cacheMisses: 0,
+      });
+
+      console.log(
+        `[dag] 完成 ok=${dagOut.ok} 组件=${dagOut.a2ui.components?.length ?? 0} 节点=${dagOut.results.length}`,
+      );
+    } else {
+      console.warn("[dag] 未生成 UI，回退双 LLM 路径");
+    }
+
+    if (dagOut?.a2ui) {
+      try {
+        await mcp.close();
+      } catch {
+        /* ignore */
+      }
+      yield { type: EventType.RUN_FINISHED, threadId, runId };
+      return;
+    }
+  }
+  let activeTools = getActiveToolsForIntent(legacyIntent, allToolNames);
+
+  // Triage 只做「纠错」：当它认为应该跳过 Planner 且旧版意图为 general 时，
+  // 用 Triage 的 worker 映射补齐工具。其他情况沿用旧集合，
+  // 避免工具集变化引起 LLM 行为回归。
+  if (orchestration?.enabled && orchestration.triage) {
+    const triage = orchestration.triage;
+    const shouldOverride = legacyIntent === "general" && triage.skipPlanner;
+
+    if (shouldOverride) {
+      const triageTools = triageToActiveTools(triage, allToolNames);
+      if (triageTools.length > 0) {
+        activeTools = triageTools;
+        console.log(
+          `[orchestration] Triage 纠错: ${triage.taskType}/${triage.riskLevel} → activeTools=${triageTools.join(",")}`,
+        );
+      }
+    } else {
+      console.log(
+        `[orchestration] Triage 确认: ${triage.taskType}/${triage.riskLevel}（沿用旧工具集）`,
+      );
+    }
+  }
 
   // 构建带历史/当前分隔的消息数组
   const messagesWithBoundary = buildMessagesWithBoundary(coreMessages, currentUserText);
+
+  // 提升到函数作用域：try 块外的后置阶段需要读取
+  let generateA2UIResult: any = null;
 
   try {
     console.log(
@@ -624,11 +879,13 @@ export async function* runAgentStream(
       );
     }
     const result = await streamText({
-      model: kimi_model("kimi-for-coding"),
+      model,
       system: systemPrompt,
       messages: messagesWithBoundary,
       tools: allTools as any,
       activeTools: activeTools as any,
+      // 显式指定，避免 SDK 因不认识模型名而回退到 4096 上限并告警
+      maxOutputTokens: 4096,
       stopWhen: stepCountIs(5),
     });
 
@@ -644,7 +901,6 @@ export async function* runAgentStream(
     let generateA2UIToolCallId: string | null = null;
     let generateA2UICompleted = false;
     let generateA2UIHandled = false;
-    let generateA2UIResult: any = null;
     // 收集业务工具结果，传给次级 LLM 使用
     const toolResultsForSubLLM: Array<{
       toolCallId: string;
@@ -779,7 +1035,7 @@ export async function* runAgentStream(
               `[agent] generate_a2ui 启动，scene: ${scenario}, toolResultsForSubLLM 条目数: ${toolResultsForSubLLM.length}, 数据总大小: ${toolDataSize} 字符`,
             );
             generateA2UIPromise = generateA2UIComponents({
-              model: kimi_model("kimi-for-coding"),
+              model,
               messages: coreMessages,
               appType: input.appType,
               scenario: scenario as any,
@@ -916,6 +1172,32 @@ export async function* runAgentStream(
     console.log(
       `[agent] 主 LLM 流结束，generateA2UIHandled: ${generateA2UIHandled}, generateA2UICompleted: ${generateA2UICompleted}`,
     );
+
+    // ── 兜底：主 LLM 调了业务工具却没触发 generate_a2ui ──
+    // 由编排层根据工具结果推断 scenario 并补生成 UI，
+    // 避免用户拿到了文字说明却看不到界面。
+    if (
+      !generateA2UIPromise &&
+      !generateA2UIHandled &&
+      toolResultsForSubLLM.length > 0
+    ) {
+      const inferred = inferScenarioFromTools(
+        toolResultsForSubLLM.map((t) => t.toolName),
+        currentUserText,
+      );
+      if (inferred) {
+        console.log(`[agent] 主 LLM 未触发 UI，兜底生成 scenario=${inferred}`);
+        generateA2UIPromise = generateA2UIComponents({
+          model,
+          messages: coreMessages,
+          appType: input.appType,
+          scenario: inferred as any,
+          toolResults: toolResultsForSubLLM,
+          sessionCache,
+        });
+      }
+    }
+
     if (!generateA2UIHandled && generateA2UIPromise) {
       console.log(`[agent] 流结束后等待次级 LLM 完成...`);
       try {
@@ -951,6 +1233,48 @@ export async function* runAgentStream(
       await mcp.close();
     } catch {
       // mcp close error ignored
+    }
+  }
+
+  // ── V1.1/V1.2 编排后置：Critic 校验 + 语义缓存 + 埋点 + DAG 日志 ──
+  if (orchestration?.enabled) {
+    try {
+      const runtime = getCurrentRuntime();
+      if (runtime?.redis.isHealthy) {
+        const cacheStats = runtime.cache.tools.getStats();
+        const a2uiForCheck = generateA2UIResult
+          ? {
+              surfaceId: generateA2UIResult.surfaceId,
+              catalogId: generateA2UIResult.catalogId,
+              components: generateA2UIResult.components ?? [],
+            }
+          : null;
+
+        const verdict = await finalizeOrchestration({
+          runtime,
+          sessionId: threadId,
+          userText: currentUserText,
+          triage: orchestration.triage,
+          a2ui: a2uiForCheck,
+          durationMs: Date.now() - runStartedAt,
+          cacheHits: cacheStats.hits,
+          cacheMisses: cacheStats.misses,
+        });
+
+        if (verdict.ok) {
+          await cacheIfEligible({
+            runtime,
+            sessionId: threadId,
+            userId: input.forwardedProps?.userId,
+            domain: input.appType,
+            userText: currentUserText,
+            triage: orchestration.triage,
+            a2ui: a2uiForCheck,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("[orchestration] 后置阶段失败:", (err as Error).message);
     }
   }
 

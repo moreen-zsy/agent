@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, Minus, Search, Star, Leaf, ChefHat, CakeSlice, Wine, LayoutGrid, X, Loader2 } from 'lucide-react';
 import { categories } from '@/data/dishes';
 import { useCart } from '@/context/CartContext';
-import { api } from '@/api';
+import { api, mapDish } from '@/api';
 import type { Dish } from '@/types';
 import gsap from 'gsap';
 
@@ -262,27 +262,7 @@ export default function Order() {
         search: searchQuery || undefined,
       })
       .then((result) => {
-        if (result.data) {
-          setDishes(
-            result.data.map((dish: unknown) => {
-              const d = dish as Record<string, unknown>;
-              return {
-                id: String(d.id),
-                name: String(d.name),
-                description: String(d.description),
-                fullDescription: d.fullDescription ? String(d.fullDescription) : undefined,
-                price: parseFloat(String(d.price)),
-                image: d.image ? String(d.image) : '',
-                category: String(d.category) as Dish['category'],
-                tags: Array.isArray(d.tags) ? d.tags.map(String) : undefined,
-                ingredients: Array.isArray(d.ingredients) ? d.ingredients.map(String) : undefined,
-                available: d.available === null ? undefined : Boolean(d.available),
-              };
-            })
-          );
-        } else {
-          setError('加载菜单失败');
-        }
+        setDishes(result.data.map(mapDish));
         setLoading(false);
       })
       .catch(() => {

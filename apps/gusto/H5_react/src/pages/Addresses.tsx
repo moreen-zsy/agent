@@ -5,7 +5,7 @@ import {
   Home, Building2, School, Star
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api } from '@/api';
+import { api, mapAddress } from '@/api';
 import { toast } from 'sonner';
 import type { UserAddress } from '@/types';
 
@@ -233,8 +233,8 @@ export default function Addresses() {
     if (!token) return;
     setLoading(true);
     try {
-      const res = await api.food.addresses.get(token);
-      if (res.data) setAddresses(res.data);
+      const list = await api.food.addresses.get(token);
+      setAddresses(list.map(mapAddress));
     } catch {
       toast.error('加载地址失败');
     } finally {
@@ -256,16 +256,12 @@ export default function Addresses() {
     if (!token) return;
     setSaving(true);
     try {
-      const res = await api.food.addresses.create(token, data);
-      if (res.data) {
-        toast.success('地址已保存');
-        setShowAddForm(false);
-        fetchAddresses();
-      } else {
-        toast.error(res.error?.message || '保存失败');
-      }
-    } catch {
-      toast.error('网络错误');
+      await api.food.addresses.create(token, data);
+      toast.success('地址已保存');
+      setShowAddForm(false);
+      fetchAddresses();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '保存失败');
     } finally {
       setSaving(false);
     }
@@ -274,11 +270,9 @@ export default function Addresses() {
   const handleSetDefault = async (id: string) => {
     if (!token) return;
     try {
-      const res = await api.food.addresses.update(id, token, { isDefault: true });
-      if (res.data) {
-        toast.success('已设为默认地址');
-        fetchAddresses();
-      }
+      await api.food.addresses.update(id, token, { isDefault: true });
+      toast.success('已设为默认地址');
+      fetchAddresses();
     } catch {
       toast.error('设置失败');
     }
@@ -289,11 +283,9 @@ export default function Addresses() {
     if (!confirm('确定要删除此地址吗？')) return;
     setDeletingId(id);
     try {
-      const res = await api.food.addresses.delete(id, token);
-      if (res.data) {
-        toast.success('地址已删除');
-        fetchAddresses();
-      }
+      await api.food.addresses.delete(id, token);
+      toast.success('地址已删除');
+      fetchAddresses();
     } catch {
       toast.error('删除失败');
     } finally {

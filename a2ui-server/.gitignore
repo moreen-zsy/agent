@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+/.alchemy
+/.prisma-composer
+
+# 本地备份与调试产物
+migrations.bak/
+src/secret.ts

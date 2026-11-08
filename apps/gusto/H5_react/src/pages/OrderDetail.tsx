@@ -4,7 +4,7 @@ import {
   ArrowLeft, Package, Loader2, MapPin, Phone, User, FileText
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api } from '@/api';
+import { api, mapOrderWithHistory } from '@/api';
 import type { OrderWithHistory } from '@/types';
 import OrderStepper from '@/components/OrderStepper';
 
@@ -34,15 +34,11 @@ export default function OrderDetail() {
 
     api.food.orders.getById(id, token)
       .then((result) => {
-        if (result.data) {
-          setData(result.data);
-        } else {
-          setError(result.error?.message || '加载失败');
-        }
+        setData(mapOrderWithHistory(result));
         setLoading(false);
       })
-      .catch(() => {
-        setError('网络错误');
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : '加载失败');
         setLoading(false);
       });
   }, [token, id]);
@@ -53,14 +49,12 @@ export default function OrderDetail() {
 
     setCancelling(true);
     try {
-      const result = await api.food.orders.cancel(id, token);
-      if (result.data) {
-        // Refresh order data
-        const refreshed = await api.food.orders.getById(id, token);
-        if (refreshed.data) setData(refreshed.data);
-      }
-    } catch {
-      alert('取消失败');
+      await api.food.orders.cancel(id, token);
+      // 取消失败会抛错；成功则重新拉取最新状态
+      const refreshed = await api.food.orders.getById(id, token);
+      setData(mapOrderWithHistory(refreshed));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '取消失败');
     } finally {
       setCancelling(false);
     }

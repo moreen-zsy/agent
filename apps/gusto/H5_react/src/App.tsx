@@ -5,13 +5,15 @@ import CartSidebar from '@/components/CartSidebar'
 import LoginModal from '@/components/LoginModal'
 import { ChatPanel } from '@/components/ChatPanel'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
-import Home from './pages/Home'
-import Order from './pages/Order'
-import AiOrder from './pages/AiOrder'
-import Orders from './pages/Orders'
-import OrderDetail from './pages/OrderDetail'
-import Profile from './pages/Profile'
-import Addresses from './pages/Addresses'
+import { lazy, Suspense } from 'react'
+
+const Home = lazy(() => import('./pages/Home'))
+const Order = lazy(() => import('./pages/Order'))
+const AiOrder = lazy(() => import('./pages/AiOrder'))
+const Orders = lazy(() => import('./pages/Orders'))
+const OrderDetail = lazy(() => import('./pages/OrderDetail'))
+const Profile = lazy(() => import('./pages/Profile'))
+const Addresses = lazy(() => import('./pages/Addresses'))
 
 function LandingRedirect() {
   return <Navigate to="/ai-order" replace />;
@@ -25,7 +27,11 @@ function OrderGuard() {
     return <Navigate to="/" replace />;
   }
 
-  return <Order />;
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <Order />
+    </Suspense>
+  );
 }
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -39,6 +45,14 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function PageLoader() {
+  return (
+    <div className="flex h-screen items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+    </div>
+  );
+}
+
 function AppContent() {
   const { isLoginModalOpen, closeLoginModal } = useAuth();
 
@@ -49,13 +63,13 @@ function AppContent() {
       <CartSidebar />
       <Routes>
         <Route path="/" element={<LandingRedirect />} />
-        <Route path="/home" element={<Home />} />
+        <Route path="/home" element={<Suspense fallback={<PageLoader />}><Home /></Suspense>} />
         <Route path="/order" element={<OrderGuard />} />
-        <Route path="/ai-order" element={<AiOrder />} />
-        <Route path="/orders" element={<AuthGuard><Orders /></AuthGuard>} />
-        <Route path="/orders/:id" element={<AuthGuard><OrderDetail /></AuthGuard>} />
-        <Route path="/profile" element={<AuthGuard><Profile /></AuthGuard>} />
-        <Route path="/profile/addresses" element={<AuthGuard><Addresses /></AuthGuard>} />
+        <Route path="/ai-order" element={<Suspense fallback={<PageLoader />}><AiOrder /></Suspense>} />
+        <Route path="/orders" element={<AuthGuard><Suspense fallback={<PageLoader />}><Orders /></Suspense></AuthGuard>} />
+        <Route path="/orders/:id" element={<AuthGuard><Suspense fallback={<PageLoader />}><OrderDetail /></Suspense></AuthGuard>} />
+        <Route path="/profile" element={<AuthGuard><Suspense fallback={<PageLoader />}><Profile /></Suspense></AuthGuard>} />
+        <Route path="/profile/addresses" element={<AuthGuard><Suspense fallback={<PageLoader />}><Addresses /></Suspense></AuthGuard>} />
       </Routes>
       <ChatPanel />
       <LoginModal open={isLoginModalOpen} onClose={closeLoginModal} />

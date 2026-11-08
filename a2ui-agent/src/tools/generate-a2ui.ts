@@ -63,6 +63,23 @@ export interface GenerateA2UIInput {
  * 根据 scenario 和 toolResults 直接构造 data 模型
  * 避免让 LLM 输出大量业务数据
  */
+/**
+ * 为菜品补上 `imageUrl` 别名。
+ *
+ * 数据库字段为 `image`，而 A2UI 提示词与 Carousel 习惯用 `imageUrl`。
+ * 两个都提供，避免次级 LLM 因字段名不一致而漏掉图片。
+ */
+function withImageUrl(dish: any): any {
+  if (!dish || typeof dish !== "object") return dish;
+  const url = dish.imageUrl || dish.image || "";
+  return { ...dish, image: url, imageUrl: url };
+}
+
+function normalizeDishImages(data: any): any {
+  if (!Array.isArray(data)) return data;
+  return data.map(withImageUrl);
+}
+
 function buildDataFromToolResults(
   scenario: GenerateA2UIInput["scenario"],
   toolResults?: GenerateA2UIInput["toolResults"],
@@ -111,12 +128,15 @@ function buildDataFromToolResults(
   switch (scenario) {
     case "menu": {
       const data = findOutput("query_menu");
-      return data ? { dishes: data } : undefined;
+      if (!data) return undefined;
+      return { dishes: normalizeDishImages(data) };
     }
     case "dish_detail": {
       // 优先从 get_dish_detail 获取，其次是 search_dish 的结果
       const data = findOutput("get_dish_detail") || findOutput("search_dish");
-      return data ? { dish: data } : undefined;
+      if (!data) return undefined;
+      const dish = Array.isArray(data) ? data[0] : data;
+      return { dish: dish ? withImageUrl(dish) : dish };
     }
     case "orders": {
       const data = findOutput("get_orders");
@@ -222,6 +242,8 @@ export async function generateA2UIComponents(
         },
       },
       toolChoice: { type: "tool", toolName: "render_a2ui" },
+      // 显式指定，避免 SDK 因不认识模型名而回退到 4096 上限并告警
+      maxOutputTokens: 4096,
     });
 
     // 提取 render_a2ui 的参数

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { X, Mail, User, Loader2 } from 'lucide-react';
+import { X, Mail, User, Loader2, Lock, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api } from '@/api';
+import { api, ApiRequestError, type RawUser } from '@/api';
 import { toast } from 'sonner';
 
 interface LoginModalProps {
@@ -9,34 +9,77 @@ interface LoginModalProps {
   onClose: () => void;
 }
 
+const MIN_PASSWORD_LENGTH = 8;
+
 export default function LoginModal({ open, onClose }: LoginModalProps) {
   const { login } = useAuth();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const resetForm = () => {
+    setEmail('');
+    setPassword('');
+    setName('');
+    setShowPassword(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) return;
+    if (!email || !password) return;
+
+    if (mode === 'register' && password.length < MIN_PASSWORD_LENGTH) {
+      toast.error(`密码至少需要 ${MIN_PASSWORD_LENGTH} 位`);
+      return;
+    }
 
     setLoading(true);
     try {
-      const result =
-        mode === 'login'
-          ? await api.auth.login({ email })
-          : await api.auth.register({ email, name: name || email.split('@')[0] });
+      if (mode === 'login') {
+        const tokens = await api.auth.login({ email, password });
+        const profile: RawUser = await api.auth.me(tokens.accessToken);
 
-      if (result.success && result.data) {
-        login(result.data.token, result.data.user);
-        toast.success(mode === 'login' ? '登录成功！' : '注册成功！');
-        setEmail('');
-        setName('');
+        login(tokens.accessToken, {
+          id: profile.id,
+          email: profile.email,
+          name: profile.name ?? undefined,
+          avatar: profile.avatar ?? undefined,
+          phone: profile.phone ?? undefined,
+        });
+        toast.success('登录成功！');
       } else {
-        toast.error(result.error?.message || '操作失败');
+        await api.auth.register({
+          email,
+          password,
+          name: name.trim() || undefined,
+        });
+
+        // 注册成功后直接登录，省去用户二次输入
+        const tokens = await api.auth.login({ email, password });
+        const profile: RawUser = await api.auth.me(tokens.accessToken);
+
+        login(tokens.accessToken, {
+          id: profile.id,
+          email: profile.email,
+          name: profile.name ?? undefined,
+          avatar: profile.avatar ?? undefined,
+          phone: profile.phone ?? undefined,
+        });
+        toast.success('注册成功，已自动登录！');
       }
-    } catch {
-      toast.error('网络错误，请稍后重试');
+
+      resetForm();
+      onClose();
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        // 后端对账号不存在与密码错误返回同一提示，这里直接透出
+        toast.error(err.message);
+      } else {
+        toast.error('网络错误，请稍后重试');
+      }
     } finally {
       setLoading(false);
     }
@@ -112,7 +155,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                 <input
                   type="text"
-                  placeholder="您的昵称"
+                  placeholder="您的昵称（可选）"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full pl-11 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-white font-display text-sm placeholder:text-white/30 focus:outline-none focus:border-brand-orange/50 transition-colors"
@@ -133,16 +176,51 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
                 placeholder="your@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
                 required
                 className="w-full pl-11 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-white font-display text-sm placeholder:text-white/30 focus:outline-none focus:border-brand-orange/50 transition-colors"
               />
             </div>
           </div>
 
+          {/* Password field */}
+          <div className="space-y-2">
+            <label className="text-white/70 font-display text-xs uppercase tracking-wider">
+              密码
+            </label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder={mode === 'register' ? `至少 ${MIN_PASSWORD_LENGTH} 位` : '请输入密码'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                required
+                minLength={mode === 'register' ? MIN_PASSWORD_LENGTH : undefined}
+                className="w-full pl-11 pr-12 py-3.5 bg-white/5 border border-white/10 rounded-xl text-white font-display text-sm placeholder:text-white/30 focus:outline-none focus:border-brand-orange/50 transition-colors"
+              />
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+                aria-label={showPassword ? '隐藏密码' : '显示密码'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            {mode === 'register' && (
+              <p className="text-white/30 text-[11px] font-serif">
+                密码至少 {MIN_PASSWORD_LENGTH} 位
+              </p>
+            )}
+          </div>
+
           {/* Submit button */}
           <button
             type="submit"
-            disabled={loading || !email}
+            disabled={loading || !email || !password}
             className="w-full py-4 bg-brand-orange text-white font-display font-semibold text-sm uppercase tracking-widest rounded-xl hover:bg-brand-orange/90 transition-all hover:shadow-glow active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {loading ? (

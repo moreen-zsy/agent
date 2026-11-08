@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { ArrowLeft, Package, Loader2, ShoppingBag } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api } from '@/api';
+import { api, mapOrder } from '@/api';
 import type { Order, OrderStatus } from '@/types';
 
 const tabs: { id: OrderStatus | 'all' | 'active'; name: string }[] = [
@@ -111,7 +111,7 @@ export default function Orders() {
 
     api.food.orders.get(token, params)
       .then((result) => {
-        let data = result.data || [];
+        let data = result.data.map(mapOrder);
         if (activeTab === 'active') {
           data = data.filter((o) => !['delivered', 'cancelled'].includes(o.status));
         }

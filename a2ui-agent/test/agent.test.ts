@@ -6,7 +6,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // 为测试提供假的环境变量
-process.env.KIMI_API_KEY = 'test-api-key';
+process.env.MIMO_API_KEY = 'test-api-key';
+process.env.MIMO_URL = 'https://example.invalid/anthropic/v1';
+process.env.MIMO_MODEL = 'mimo-test';
 process.env.VITEST = 'true';
 import { EventType } from '@ag-ui/core';
 import type { AgentInput } from '../src/types.js';
@@ -153,8 +155,9 @@ describe('runAgentStream', () => {
     const messages = callArgs.messages;
     const lastMessage = messages[messages.length - 1];
     expect(lastMessage.role).toBe('user');
+    // 当前实现会把 action name 转成友好描述，而非直插原始 ID
     expect(lastMessage.content).toContain('button_click');
-    expect(lastMessage.content).toContain('btn-1');
+    expect(lastMessage.content).toContain('submit');
   });
 
   it('should yield text-delta as TEXT_MESSAGE_CONTENT events', async () => {

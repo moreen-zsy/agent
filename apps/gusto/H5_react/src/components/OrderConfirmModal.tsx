@@ -3,7 +3,7 @@ import { X, Plus, Minus, MapPin, FileText, Loader2, ShoppingBag, ChevronRight } 
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router';
-import { api } from '@/api';
+import { api, mapAddress } from '@/api';
 import { toast } from 'sonner';
 import type { UserAddress } from '@/types';
 
@@ -31,18 +31,17 @@ export default function OrderConfirmModal({ open, onClose, onNavigateAway }: Ord
   useEffect(() => {
     if (!token || !open) return;
     api.food.addresses.get(token)
-      .then((res) => {
-        if (res.data) {
-          setAddresses(res.data);
-          const defaultAddr = res.data.find((a) => a.isDefault);
-          if (defaultAddr) {
-            setAddress(defaultAddr.address);
-            setPhone(defaultAddr.phone || user?.phone || '');
-            setContactName(defaultAddr.contactName || user?.name || '');
-          }
+      .then((list) => {
+        const mapped = list.map(mapAddress);
+        setAddresses(mapped);
+        const defaultAddr = mapped.find((a) => a.isDefault);
+        if (defaultAddr) {
+          setAddress(defaultAddr.address);
+          setPhone(defaultAddr.phone || user?.phone || '');
+          setContactName(defaultAddr.contactName || user?.name || '');
         }
       })
-      .catch(() => { /* silent fail */ });
+      .catch(() => { /* 静默失败，不影响手动填写 */ });
   }, [token, open, user]);
 
   useEffect(() => {
@@ -101,16 +100,12 @@ export default function OrderConfirmModal({ open, onClose, onNavigateAway }: Ord
         token
       );
 
-      if (result.success && result.data) {
-        toast.success('订单已提交！');
-        clearCart();
-        onClose();
-        navigate(`/orders/${result.data.id}`);
-      } else {
-        toast.error(result.error?.message || '下单失败');
-      }
-    } catch {
-      toast.error('网络错误，请稍后重试');
+      toast.success('订单已提交！');
+      clearCart();
+      onClose();
+      navigate(`/orders/${result.order.id}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '网络错误，请稍后重试');
     } finally {
       setSubmitting(false);
     }

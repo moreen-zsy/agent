@@ -1,0 +1,263 @@
+[
+  {
+    "id": "schema.public",
+    "label": "Create schema \"public\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres"
+    },
+    "precheck": [],
+    "execute": [
+      {
+        "description": "Create schema \"public\"",
+        "sql": "CREATE SCHEMA IF NOT EXISTS \"public\"",
+        "params": []
+      }
+    ],
+    "postcheck": []
+  },
+  {
+    "id": "table.dishes",
+    "label": "Create table \"dishes\"",
+    "summary": "Creates table \"dishes\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "dishes"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"dishes\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"dishes\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "table \"dishes\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"dishes\"",
+        "sql": "CREATE TABLE \"public\".\"dishes\" (\n  \"available\" bool DEFAULT true,\n  \"category\" character varying(50) NOT NULL,\n  \"created_at\" timestamptz DEFAULT (now()) NOT NULL,\n  \"description\" text,\n  \"full_description\" text,\n  \"id\" uuid NOT NULL,\n  \"image\" text,\n  \"ingredients\" text[],\n  \"name\" character varying(255) NOT NULL,\n  \"price\" numeric(10,2) NOT NULL,\n  \"tags\" text[],\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"dishes_ingredients_elem_not_null_225187b9\" CHECK (array_position(\"ingredients\", NULL) IS NULL),\n  CONSTRAINT \"dishes_tags_elem_not_null_aecbe9e2\" CHECK (array_position(\"tags\", NULL) IS NULL)\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"dishes\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" WHERE (\"c\".\"oid\" = to_regclass($1) AND (\"c\".\"relkind\" = $2 OR \"c\".\"relkind\" = $3))) AS \"result\"",
+        "params": [
+          "\"public\".\"dishes\"",
+          "r",
+          "p"
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "table \"dishes\""
+        }
+      }
+    ]
+  },
+  {
+    "id": "table.order_status_history",
+    "label": "Create table \"order_status_history\"",
+    "summary": "Creates table \"order_status_history\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "order_status_history"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"order_status_history\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"order_status_history\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "table \"order_status_history\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"order_status_history\"",
+        "sql": "CREATE TABLE \"public\".\"order_status_history\" (\n  \"created_at\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" uuid NOT NULL,\n  \"message\" text,\n  \"order_id\" uuid NOT NULL,\n  \"prev_status\" character varying(50),\n  \"status\" character varying(50) NOT NULL,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"order_status_history\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" WHERE (\"c\".\"oid\" = to_regclass($1) AND (\"c\".\"relkind\" = $2 OR \"c\".\"relkind\" = $3))) AS \"result\"",
+        "params": [
+          "\"public\".\"order_status_history\"",
+          "r",
+          "p"
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "table \"order_status_history\""
+        }
+      }
+    ]
+  },
+  {
+    "id": "table.orders",
+    "label": "Create table \"orders\"",
+    "summary": "Creates table \"orders\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "orders"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"orders\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"orders\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "table \"orders\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"orders\"",
+        "sql": "CREATE TABLE \"public\".\"orders\" (\n  \"address\" text,\n  \"contact_name\" character varying(100),\n  \"created_at\" timestamptz DEFAULT (now()) NOT NULL,\n  \"delivery_type\" character varying(20) DEFAULT 'delivery' NOT NULL,\n  \"estimated_time\" timestamptz,\n  \"id\" uuid NOT NULL,\n  \"items\" jsonb NOT NULL,\n  \"note\" text,\n  \"order_no\" character varying(32) NOT NULL,\n  \"payment_method\" character varying(20),\n  \"payment_status\" character varying(20) DEFAULT 'unpaid' NOT NULL,\n  \"phone\" character varying(20),\n  \"status\" character varying(50) DEFAULT 'pending' NOT NULL,\n  \"total\" numeric NOT NULL,\n  \"updated_at\" timestamptz DEFAULT (now()) NOT NULL,\n  \"user_id\" uuid NOT NULL,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"orders\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" WHERE (\"c\".\"oid\" = to_regclass($1) AND (\"c\".\"relkind\" = $2 OR \"c\".\"relkind\" = $3))) AS \"result\"",
+        "params": [
+          "\"public\".\"orders\"",
+          "r",
+          "p"
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "table \"orders\""
+        }
+      }
+    ]
+  },
+  {
+    "id": "table.user_addresses",
+    "label": "Create table \"user_addresses\"",
+    "summary": "Creates table \"user_addresses\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "user_addresses"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"user_addresses\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"user_addresses\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "table \"user_addresses\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"user_addresses\"",
+        "sql": "CREATE TABLE \"public\".\"user_addresses\" (\n  \"address\" text NOT NULL,\n  \"contact_name\" character varying(100),\n  \"created_at\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" uuid NOT NULL,\n  \"is_default\" bool DEFAULT false,\n  \"label\" character varying(50),\n  \"phone\" character varying(20),\n  \"user_id\" uuid NOT NULL,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"user_addresses\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" WHERE (\"c\".\"oid\" = to_regclass($1) AND (\"c\".\"relkind\" = $2 OR \"c\".\"relkind\" = $3))) AS \"result\"",
+        "params": [
+          "\"public\".\"user_addresses\"",
+          "r",
+          "p"
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "table \"user_addresses\""
+        }
+      }
+    ]
+  },
+  {
+    "id": "unique.orders.orders_order_no_key",
+    "label": "Add unique constraint on \"orders\" (order_no)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "orders_order_no_key",
+        "table": "orders"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"orders_order_no_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "orders_order_no_key",
+          "public",
+          "\"public\".\"orders\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"orders_order_no_key\" on \"orders\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"orders_order_no_key\"",
+        "sql": "ALTER TABLE \"public\".\"orders\" ADD CONSTRAINT \"orders_order_no_key\" UNIQUE (\"order_no\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify unique constraint \"orders_order_no_key\" exists on (order_no)",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4 AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"conkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"conrelid\" AND key_attribute.attnum = key_column.attnum) = ($5)::jsonb)) AS \"result\"",
+        "params": [
+          "orders_order_no_key",
+          "public",
+          "\"public\".\"orders\"",
+          "u",
+          "[\"order_no\"]"
+        ]
+      }
+    ]
+  }
+]

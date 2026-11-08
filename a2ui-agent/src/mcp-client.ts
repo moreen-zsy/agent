@@ -7,7 +7,7 @@
  *
  * 依赖:
  *   - a2ui-server 已启动并监听 A2UI_API_BASE（默认 http://localhost:3000）
- *   - .env 中提供 KIMI_API_KEY
+ *   - .env 中提供 MIMO_API_KEY
  *   - 用户已在前端登录并拥有 JWT Token
  */
 
@@ -26,10 +26,13 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 config({ path: resolve(import.meta.dirname, "..", ".env") });
 
-const kimi = createAnthropic({
-  apiKey: process.env.KIMI_API_KEY,
-  baseURL: "https://api.kimi.com/coding/v1",
+const provider = createAnthropic({
+  apiKey: process.env.MIMO_API_KEY,
+  baseURL:
+    process.env.MIMO_URL || "https://token-plan-cn.xiaomimimo.com/anthropic/v1",
 });
+
+const MODEL_ID = process.env.MIMO_MODEL || "mimo-v2.6-flash";
 
 const SYSTEM_PROMPT = `你是 A2UI 业务助手，可以同时调用「点餐」和「校园」两个领域的工具。
 
@@ -118,7 +121,7 @@ async function chat() {
 
       try {
         const result = await generateText({
-          model: kimi("kimi-for-coding"),
+          model: provider(MODEL_ID),
           messages,
           tools: allTools,
           stopWhen: stepCountIs(8),

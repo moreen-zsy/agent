@@ -23,9 +23,9 @@ import {
 } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
-import { api } from '@/api';
+import { api, mapDish, mapOrderWithHistory } from '@/api';
 import type { Dish } from '@/types';
-import type { OrderWithHistory } from '@/api';
+import type { OrderWithHistory } from '@/types';
 import OrderStepper from '@/components/OrderStepper';
 import gsap from 'gsap';
 import { Streamdown } from 'streamdown';
@@ -38,7 +38,9 @@ interface ChatMessage {
   surfaceId?: string;
 }
 
-const AGENT_URL = 'http://localhost:3000/api/agent/stream';
+// 与后端路由保持一致：a2ui-server2 的 agent 路由前缀为 /agent（无 /api）
+const API_ORIGIN = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const AGENT_URL = `${API_ORIGIN}/agent/stream`;
 
 const A2UI_CATALOG_SCHEMA = {
   catalogId: 'https://a2ui.org/specification/v0_9/basic_catalog.json',
@@ -239,7 +241,7 @@ function OrderDetailModal({ orderId, onClose }: { orderId: string; onClose: () =
       try {
         const result = await api.food.orders.getById(orderId, token);
         if (cancelled) return;
-        if (result.data) setData(result.data);
+        setData(mapOrderWithHistory(result));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -432,27 +434,25 @@ export default function AiOrder() {
     api.food.menu
       .get()
       .then((result) => {
-        if (result.data) {
-          const dishes = result.data.map((d: unknown) => {
-            const item = d as Record<string, unknown>;
-            return {
-              id: String(item.id),
-              name: String(item.name),
-              description: String(item.description),
-              price: parseFloat(String(item.price)),
-              image: item.image ? String(item.image) : '',
-              category: String(item.category) as Dish['category'],
-              tags: Array.isArray(item.tags) ? item.tags.map(String) : undefined,
-              ingredients: Array.isArray(item.ingredients)
-                ? item.ingredients.map(String)
-                : undefined,
-              fullDescription: item.fullDescription
-                ? String(item.fullDescription)
-                : undefined,
-            };
-          });
-          setMenuDishes(dishes);
-        }
+        const dishes = result.data.map((d: unknown) => {
+          const item = d as Record<string, unknown>;
+          return {
+            id: String(item.id),
+            name: String(item.name),
+            description: String(item.description ?? ''),
+            price: parseFloat(String(item.price)),
+            image: item.image ? String(item.image) : '',
+            category: String(item.category) as Dish['category'],
+            tags: Array.isArray(item.tags) ? item.tags.map(String) : undefined,
+            ingredients: Array.isArray(item.ingredients)
+              ? item.ingredients.map(String)
+              : undefined,
+            fullDescription: (item.full_description ?? item.fullDescription)
+              ? String(item.full_description ?? item.fullDescription)
+              : undefined,
+          };
+        });
+        setMenuDishes(dishes);
       })
       .catch(() => {
         // Fallback: if API fails, we still have empty menu
@@ -491,21 +491,8 @@ export default function AiOrder() {
             addToCartRef.current(dish);
           } else if (dishId) {
             // 本地缓存未命中，回退到 API 查询
-            void api.food.menu.getById(dishId).then((result) => {
-              if (result.data) {
-                const d = result.data;
-                addToCartRef.current({
-                  id: String(d.id),
-                  name: String(d.name),
-                  description: String(d.description || ''),
-                  price: typeof d.price === 'number' ? d.price : parseFloat(String(d.price)),
-                  image: d.image ? String(d.image) : '',
-                  category: String(d.category) as Dish['category'],
-                  tags: d.tags?.map(String) || undefined,
-                  ingredients: d.ingredients?.map(String) || undefined,
-                  fullDescription: d.fullDescription ? String(d.fullDescription) : undefined,
-                });
-              }
+            void api.food.menu.getById(dishId).then((d) => {
+              addToCartRef.current(mapDish(d));
             });
           }
         }
@@ -516,21 +503,8 @@ export default function AiOrder() {
             setSelectedDish(dish);
           } else if (dishId) {
             // 本地缓存未命中，回退到 API 查询
-            void api.food.menu.getById(dishId).then((result) => {
-              if (result.data) {
-                const d = result.data;
-                setSelectedDish({
-                  id: String(d.id),
-                  name: String(d.name),
-                  description: String(d.description || ''),
-                  price: typeof d.price === 'number' ? d.price : parseFloat(String(d.price)),
-                  image: d.image ? String(d.image) : '',
-                  category: String(d.category) as Dish['category'],
-                  tags: d.tags?.map(String) || undefined,
-                  ingredients: d.ingredients?.map(String) || undefined,
-                  fullDescription: d.fullDescription ? String(d.fullDescription) : undefined,
-                });
-              }
+            void api.food.menu.getById(dishId).then((d) => {
+              setSelectedDish(mapDish(d));
             });
           }
         }

@@ -15,7 +15,7 @@
     "@ag-ui/client": "catalog:agui",
     "@ag-ui/core": "catalog:agui",
     "@ag-ui/a2ui-middleware": "catalog:agui",
-    "@elysiajs/eden": "catalog:server",
+    "@elysia/eden": "catalog:server",
     "streamdown": "catalog:",
     "@hookform/resolvers": "catalog:react",
     "@radix-ui/react-accordion": "catalog:react",

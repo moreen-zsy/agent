@@ -1,0 +1,227 @@
+import { db } from "../src/prisma/db.ts";
+
+/**
+ * 菜品种子脚本
+ *
+ * 1. 清空测试残留数据（订单/状态历史/菜品）
+ * 2. 写入 gusto 前端实际使用的 12 道菜
+ *
+ * 图片由后端静态服务提供（`public/images/*` → `/images/*`），
+ * 所以 image 存的是后端自身的完整 URL，与前端部署地址无关。
+ *
+ * 运行：bun run scripts/seed-dishes.ts
+ * 生产环境可通过 API_ORIGIN 覆盖域名。
+ */
+
+const API_ORIGIN = (
+  process.env.API_ORIGIN ||
+  `http://localhost:${(process.env.PORT || "3000").trim()}`
+).replace(/\/$/, "");
+
+/** 图片在静态服务下的挂载前缀 */
+const IMAGE_PREFIX = "/images";
+
+interface SeedDish {
+  name: string;
+  description: string;
+  fullDescription: string;
+  price: string;
+  imagePath: string;
+  category: "signature" | "main" | "dessert" | "drink" | "appetizer";
+  tags: string[];
+  ingredients: string[];
+}
+
+const DISHES: SeedDish[] = [
+  {
+    name: "和牛芝士汉堡",
+    description: "澳洲M9和牛肉饼，搭配布里欧修面包",
+    fullDescription:
+      "选用澳洲M9级和牛肉手工打制肉饼，搭配焦糖洋葱、车达芝士与秘制松露酱，夹在新鲜烘烤的布里欧修面包中。每一口都是肉汁与香气的完美交融。",
+    price: "128.00",
+    imagePath: "/dish-burger.jpg",
+    category: "signature",
+    tags: ["招牌", "人气"],
+    ingredients: ["M9和牛肉", "布里欧修面包", "车达芝士", "焦糖洋葱", "松露酱"],
+  },
+  {
+    name: "石锅拌饭",
+    description: "传统韩式石锅，滋滋作响的锅巴香",
+    fullDescription:
+      "以300度高温石锅盛载，底层铺满金黄香脆的锅巴饭，上面整齐排列着时令蔬菜、澳洲牛肉丝与半熟太阳蛋，拌入秘制韩式辣酱，热气腾腾，色香味俱全。",
+    price: "88.00",
+    imagePath: "/dish-bibimbap.jpg",
+    category: "main",
+    tags: ["热销", "辣味"],
+    ingredients: ["优质大米", "澳洲牛肉", "时令蔬菜", "太阳蛋", "韩式辣酱"],
+  },
+  {
+    name: "炭烤肋眼牛排",
+    description: "美国Prime级肋眼，炭火慢烤",
+    fullDescription:
+      "精选美国USDA Prime级肋眼牛排，以果木炭火慢烤至完美熟度。外层焦香酥脆，内里粉嫩多汁，搭配迷迭香烤蒜与红酒酱汁，呈现最纯粹的肉食盛宴。",
+    price: "368.00",
+    imagePath: "/dish-steak.jpg",
+    category: "signature",
+    tags: ["招牌", "推荐"],
+    ingredients: ["USDA Prime肋眼", "迷迭香", "烤蒜", "红酒酱汁", "海盐"],
+  },
+  {
+    name: "黑松露奶油意面",
+    description: "新鲜黑松露片，浓郁奶油酱汁",
+    fullDescription:
+      "手工制作的宽扁意面，裹挟着以帕玛森芝士、鲜奶油与黄油熬制的浓郁酱汁，现刨新鲜黑松露薄片，香气扑鼻，口感丝滑，是松露爱好者的必点之选。",
+    price: "168.00",
+    imagePath: "/dish-pasta.jpg",
+    category: "main",
+    tags: ["素食可选"],
+    ingredients: ["手工意面", "黑松露", "帕玛森芝士", "鲜奶油", "黄油"],
+  },
+  {
+    name: "香煎三文鱼",
+    description: "挪威深海三文鱼，外酥里嫩",
+    fullDescription:
+      "来自挪威深海的顶级三文鱼，以低温慢煎锁住鲜美鱼油，鱼皮金黄酥脆，鱼肉鲜嫩多汁。搭配柠檬黄油汁与嫩豌豆苗，清新解腻，层次分明。",
+    price: "158.00",
+    imagePath: "/dish-salmon.jpg",
+    category: "main",
+    tags: ["健康", "低卡"],
+    ingredients: ["挪威三文鱼", "柠檬", "黄油", "豌豆苗", "橄榄油"],
+  },
+  {
+    name: "熔岩巧克力蛋糕",
+    description: "70%黑巧，切开后流心溢出",
+    fullDescription:
+      "采用70%法芙娜黑巧克力制作，外层松软绵密，切开后温热的巧克力流心缓缓溢出。搭配覆盆子果酱与香草冰淇淋，冷热交织，甜蜜满分。",
+    price: "68.00",
+    imagePath: "/dish-dessert.jpg",
+    category: "dessert",
+    tags: ["必点", "甜蜜"],
+    ingredients: ["法芙娜黑巧克力", "覆盆子", "香草冰淇淋", "金箔", "面粉"],
+  },
+  {
+    name: "布拉塔芝士沙拉",
+    description: "意大利进口布拉塔，配传家宝番茄",
+    fullDescription:
+      "从意大利空运而来的新鲜布拉塔芝士，切开后奶油内馅缓缓流出。搭配色彩斑斓的传家宝番茄、芝麻菜与陈年黑醋，简单纯粹却风味无穷。",
+    price: "98.00",
+    imagePath: "/dish-salad.jpg",
+    category: "appetizer",
+    tags: ["轻食", "素食"],
+    ingredients: ["布拉塔芝士", "传家宝番茄", "芝麻菜", "陈年黑醋", "橄榄油"],
+  },
+  {
+    name: "那不勒斯披萨",
+    description: "48小时低温发酵面团，果木烤制",
+    fullDescription:
+      "遵循传统那不勒斯工艺，面团经48小时低温发酵，在900度果木烤窑中90秒快速烤制。饼底薄脆有嚼劲，搭配圣马扎诺番茄、水牛马苏里拉与新鲜罗勒。",
+    price: "108.00",
+    imagePath: "/dish-pizza.jpg",
+    category: "main",
+    tags: ["经典", "分享"],
+    ingredients: ["00号面粉", "圣马扎诺番茄", "水牛马苏里拉", "罗勒", "橄榄油"],
+  },
+  {
+    name: "特选寿司拼盘",
+    description: "当日空运鲜鱼，职人手握",
+    fullDescription:
+      "由拥有二十年经验的寿司职人现场手握制作。包含三文鱼、金枪鱼、鲷鱼、甜虾等多种当日空运鲜鱼，每一贯都是对食材与技艺的致敬。",
+    price: "288.00",
+    imagePath: "/dish-sushi.jpg",
+    category: "signature",
+    tags: ["限量", "新鲜"],
+    ingredients: ["三文鱼", "金枪鱼", "鲷鱼", "甜虾", "江户前赤醋饭"],
+  },
+  {
+    name: "古典鸡尾酒",
+    description: "波本威士忌，橙皮熏香",
+    fullDescription:
+      "以优质波本威士忌为基底，加入方糖与安哥斯图拉苦精，以大块手工切冰缓慢稀释，最后以橙皮熏香点缀。经典永不过时，每一口都是岁月的沉淀。",
+    price: "88.00",
+    imagePath: "/dish-cocktail.jpg",
+    category: "drink",
+    tags: ["经典", "微醺"],
+    ingredients: ["波本威士忌", "方糖", "安哥斯图拉苦精", "橙皮", "手工切冰"],
+  },
+  {
+    name: "主厨甄选套餐",
+    description: "7道式 tasting menu，每日限量",
+    fullDescription:
+      "由行政主厨精心设计的7道式品鉴菜单，从前菜到甜品，每道菜都是创意与技艺的结晶。菜单每月更换，使用当季最优质的食材，带来独一无二的用餐体验。",
+    price: "688.00",
+    imagePath: "/dish-chef.jpg",
+    category: "signature",
+    tags: ["限量", "体验"],
+    ingredients: ["当季食材", "主厨创意", "精选配酒"],
+  },
+  {
+    name: "烤番茄浓汤",
+    description: "慢烤樱桃番茄，浓郁酸甜",
+    fullDescription:
+      "精选枝上熟樱桃番茄，以橄榄油与海盐慢烤至焦糖化，再与新鲜罗勒一同打制浓汤。酸甜适中，口感丝滑，是开启一餐的完美序曲。",
+    price: "58.00",
+    imagePath: "/dish-tomato.jpg",
+    category: "appetizer",
+    tags: ["暖胃", "素食"],
+    ingredients: ["樱桃番茄", "罗勒", "橄榄油", "海盐", "奶油"],
+  },
+];
+
+async function main() {
+  console.log(`[seed] API 基址: ${API_ORIGIN}`);
+  console.log(`[seed] 图片 URL 形如: ${API_ORIGIN}${IMAGE_PREFIX}/dish-burger.jpg`);
+
+  // ── 清理测试产生的订单数据（与菜品无关，但避免脏数据干扰） ──
+  const historyIds = (await db.orm.public.OrderStatusHistory.select("id").all()).map((r) => r.id);
+  if (historyIds.length > 0) {
+    await db.orm.public.OrderStatusHistory.where((h) => h.id.in(historyIds)).deleteAll();
+  }
+
+  const orderIds = (await db.orm.public.Orders.select("id").all()).map((r) => r.id);
+  if (orderIds.length > 0) {
+    await db.orm.public.Orders.where((o) => o.id.in(orderIds)).deleteAll();
+  }
+  console.log(`[seed] 已清理订单 ${orderIds.length} 条、状态历史 ${historyIds.length} 条`);
+
+  // ── 清理旧菜品 ──
+  const { total } = await db.orm.public.Dishes.aggregate((agg) => ({ total: agg.count() }));
+  console.log(`[seed] 当前菜品数: ${total}`);
+
+  if (total > 0) {
+    // deleteAll 要求集合已被过滤：先读出全部 id，再按 id 批量删除
+    const ids = (await db.orm.public.Dishes.select("id").all()).map((d) => d.id);
+    await db.orm.public.Dishes.where((d) => d.id.in(ids)).deleteAll();
+    const { total: left } = await db.orm.public.Dishes.aggregate((agg) => ({ total: agg.count() }));
+    console.log(`[seed] 已清空菜品，剩余 ${left} 条`);
+  }
+
+  let created = 0;
+  for (const dish of DISHES) {
+    await db.orm.public.Dishes.create({
+      name: dish.name,
+      description: dish.description,
+      full_description: dish.fullDescription,
+      price: dish.price as never,
+      image: `${API_ORIGIN}${IMAGE_PREFIX}${dish.imagePath}`,
+      category: dish.category,
+      tags: dish.tags,
+      ingredients: dish.ingredients,
+      available: true,
+    });
+    created++;
+  }
+
+  const after = await db.orm.public.Dishes.aggregate((agg) => ({ total: agg.count() }));
+  console.log(`[seed] 写入完成: ${created} 条，库中现有 ${after.total} 条`);
+
+  const sample = await db.orm.public.Dishes
+    .select("name", "price", "image", "category")
+    .orderBy((d) => d.name.asc())
+    .limit(3)
+    .all();
+  console.log("[seed] 抽查:", JSON.stringify(sample, null, 2));
+
+  process.exit(0);
+}
+
+await main();

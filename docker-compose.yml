@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:17-alpine
@@ -18,5 +16,28 @@ services:
       timeout: 5s
       retries: 5
 
+  # 会话内存子系统 / 多级缓存 的底层存储
+  # 用途：session:{sid}:meta|working_memory|entity_store|trace
+  #       cache:l1:*  cache:l2:*  cache:l4:*
+  redis:
+    image: redis:7-alpine
+    container_name: a2ui-redis
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  redis_data:

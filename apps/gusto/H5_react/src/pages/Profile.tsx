@@ -33,16 +33,19 @@ export default function Profile() {
     if (!token) return;
     setSaving(true);
     try {
-      const result = await api.auth.updateProfile(token, { name, phone });
-      if (result.data?.user) {
-        login(token, result.data.user);
-        toast.success('资料已更新');
-        setEditing(false);
-      } else {
-        toast.error(result.error?.message || '更新失败');
-      }
-    } catch {
-      toast.error('网络错误');
+      // 后端暂未提供资料修改接口，这里仅更新本地缓存，避免误报成功
+      const refreshed = await api.auth.me(token);
+      login(token, {
+        id: refreshed.id,
+        email: refreshed.email,
+        name: name || refreshed.name || undefined,
+        avatar: refreshed.avatar ?? undefined,
+        phone: phone || refreshed.phone || undefined,
+      });
+      toast.success('资料已更新（仅本地生效）');
+      setEditing(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '更新失败');
     } finally {
       setSaving(false);
     }
