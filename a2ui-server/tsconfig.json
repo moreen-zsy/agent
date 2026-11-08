@@ -1,9 +1,10 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
+    "types": ["zod"],
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": ".",
     "noEmit": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "service.ts"]
 }

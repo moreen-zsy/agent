@@ -1,242 +1,262 @@
+import { Elysia } from "elysia";
+import type { AuthPlugin } from "../plugins/auth-plugin";
+import {
+  cancelOrderSchema,
+  createAddressSchema,
+  createDishSchema,
+  createOrderSchema,
+  menuQuerySchema,
+  ordersQuerySchema,
+  updateAddressSchema,
+  updateDishSchema,
+  updateOrderStatusSchema,
+} from "../schemas/food.ts";
+import * as foodService from "../services/food-service.ts";
+
 /**
- * 点餐业务 REST API
+ * 点餐业务路由
+ *
+ * 迁移自 `a2ui-server/src/routes/food.ts`，数据层从 Drizzle 改为 Prisma ORM。
+ *
+ * ## 类型约定
+ * - 输入：zod schema（`schemas/food.ts`）
+ * - 输出：Prisma 模型类型（`services/food-service.ts` 的返回类型）
+ *
+ * ## 鉴权
+ * 使用 `authPlugin` 注入的 `user`；需要登录的接口自行判断并返回 401。
  */
 
-import { Elysia, t } from 'elysia';
-import {
-  getMenu, getDish, createOrder, getOrders, getOrderWithHistory,
-  updateOrderStatus, cancelOrder, deleteOrder,
-  getUserAddresses, createUserAddress, updateUserAddress, deleteUserAddress,
-} from '../services/food-service.js';
-import { verifyToken } from '../middleware/auth.js';
+/** 统一错误响应体 */
+const errorOf = (code: string, message: string) => ({ success: false, error: { code, message } });
+/** 统一成功响应体 */
+const dataOf = <T>(data: T) => ({ success: true, data });
 
-const OrderItemSchema = t.Object({
-  dishId: t.String(),
-  name: t.String(),
-  quantity: t.Number({ minimum: 1 }),
-  price: t.Number({ minimum: 0 }),
-  image: t.Optional(t.String()),
-});
+export const foodRoutes = (auth: AuthPlugin) =>
+  new Elysia({ name: "food-routes", prefix: "/food" })
+    .use(auth)
 
-export const foodRoutes = new Elysia({ prefix: '/api/food', detail: { tags: ['Food'] } })
-  .get('/menu', async ({ query }) => {
-    const category = query.category;
-    const search = query.search;
-    const page = query.page ? parseInt(query.page) : 1;
-    const pageSize = query.pageSize ? parseInt(query.pageSize) : 20;
+    // ═══════════════════════ 菜品 ═══════════════════════
 
-    return getMenu(category, search, { page, pageSize });
-  }, {
-    query: t.Object({
-      category: t.Optional(t.String()),
-      search: t.Optional(t.String()),
-      page: t.Optional(t.String()),
-      pageSize: t.Optional(t.String()),
-    }),
-    detail: { summary: 'Get menu with optional filtering and pagination' },
-  })
+    /** 获取菜单，支持分类过滤、模糊搜索与分页 */
+    .get("/menu", async ({ query }) => {
+      const result = await foodService.getMenu({
+        category: query.category,
+        search: query.search,
+        page: query.page,
+        pageSize: query.pageSize,
+      });
+      return dataOf(result);
+    }, {
+      query: menuQuerySchema,
+      detail: { summary: "Get menu with optional filtering and pagination", tags: ["Food"] },
+    })
 
-  .get('/menu/:id', async ({ params }) => {
-    const dish = await getDish(params.id);
-    if (!dish) {
-      return { success: false, error: { code: 'NOT_FOUND', message: 'Dish not found' } };
-    }
-    return { success: true, data: dish };
-  }, {
-    params: t.Object({ id: t.String() }),
-    detail: { summary: 'Get a single dish by ID' },
-  })
+    /** 获取单个菜品 */
+    .get("/menu/:id", async ({ params, status }) => {
+      const dish = await foodService.getDish(params.id);
+      if (!dish) return status(404, errorOf("NOT_FOUND", "Dish not found"));
+      return dataOf(dish);
+    }, {
+      detail: { summary: "Get a single dish by ID", tags: ["Food"] },
+    })
 
-  .post('/order', async ({ body, headers }) => {
-    const user = await verifyToken(headers);
-    if (!user) return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
+    /** 创建菜品（需登录） */
+    .post("/menu", async ({ body, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
 
-    const order = await createOrder(user.id, {
-      items: body.items,
-      address: body.address,
-      phone: body.phone,
-      contactName: body.contactName,
-      note: body.note,
-      deliveryType: body.deliveryType,
+      const dish = await foodService.createDish(body);
+      return dataOf(dish);
+    }, {
+      body: createDishSchema,
+      detail: { summary: "Create a dish", tags: ["Food"] },
+    })
+
+    /** 部分更新菜品（需登录） */
+    .patch("/menu/:id", async ({ params, body, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const dish = await foodService.updateDish(params.id, body);
+      if (!dish) return status(404, errorOf("NOT_FOUND", "Dish not found"));
+      return dataOf(dish);
+    }, {
+      body: updateDishSchema,
+      detail: { summary: "Partially update a dish", tags: ["Food"] },
+    })
+
+    /** 删除菜品（需登录） */
+    .delete("/menu/:id", async ({ params, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const dish = await foodService.deleteDish(params.id);
+      if (!dish) return status(404, errorOf("NOT_FOUND", "Dish not found"));
+      return dataOf(dish);
+    }, {
+      detail: { summary: "Delete a dish", tags: ["Food"] },
+    })
+
+    // ═══════════════════════ 订单 ═══════════════════════
+
+    /** 创建订单 */
+    .post("/orders", async ({ body, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const userId = typeof user.sub === "string" ? user.sub : undefined;
+      if (!userId) return status(401, errorOf("UNAUTHORIZED", "Invalid token payload"));
+
+      const order = await foodService.createOrder(userId, body);
+      return dataOf(order);
+    }, {
+      body: createOrderSchema,
+      detail: { summary: "Create a new order", tags: ["Food"] },
+    })
+
+    /** 查询当前用户的订单列表 */
+    .get("/orders", async ({ query, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const userId = typeof user.sub === "string" ? user.sub : undefined;
+      if (!userId) return status(401, errorOf("UNAUTHORIZED", "Invalid token payload"));
+
+      const page = Math.max(1, Number(query.page) || 1);
+      const pageSize = Math.max(1, Number(query.pageSize) || 20);
+
+      const result = await foodService.getOrders(userId, { page, pageSize }, query.status);
+      return dataOf(result);
+    }, {
+      query: ordersQuerySchema,
+      detail: { summary: "Get user orders with pagination", tags: ["Food"] },
+    })
+
+    /** 订单详情（含状态历史） */
+    .get("/orders/:id", async ({ params, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const result = await foodService.getOrderWithHistory(params.id);
+      if (!result) return status(404, errorOf("NOT_FOUND", "Order not found"));
+
+      if (String(result.order.userId) !== String(user.sub)) {
+        return status(403, errorOf("FORBIDDEN", "Cannot access this order"));
+      }
+      return dataOf(result);
+    }, {
+      detail: { summary: "Get order detail with status history", tags: ["Food"] },
+    })
+
+    /** 更新订单状态 */
+    .put("/orders/:id/status", async ({ params, body, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const current = await foodService.getOrder(params.id);
+      if (!current) return status(404, errorOf("NOT_FOUND", "Order not found"));
+
+      if (String(current.userId) !== String(user.sub)) {
+        return status(403, errorOf("FORBIDDEN", "Cannot modify this order"));
+      }
+
+      const updated = await foodService.updateOrderStatus(params.id, body.status, body.message);
+      if (!updated) return status(404, errorOf("NOT_FOUND", "Order not found"));
+      return dataOf(updated);
+    }, {
+      body: updateOrderStatusSchema,
+      detail: { summary: "Update order status with history", tags: ["Food"] },
+    })
+
+    /** 取消订单 */
+    .post("/orders/:id/cancel", async ({ params, body, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const current = await foodService.getOrder(params.id);
+      if (!current) return status(404, errorOf("NOT_FOUND", "Order not found"));
+
+      if (String(current.userId) !== String(user.sub)) {
+        return status(403, errorOf("FORBIDDEN", "Cannot cancel this order"));
+      }
+      if (current.status === "cancelled") {
+        return status(400, errorOf("VALIDATION_ERROR", "Order already cancelled"));
+      }
+      if (["delivered", "delivering"].includes(String(current.status))) {
+        return status(400, errorOf("VALIDATION_ERROR", "Cannot cancel order at this stage"));
+      }
+
+      const updated = await foodService.cancelOrder(params.id, body?.reason);
+      if (!updated) return status(404, errorOf("NOT_FOUND", "Order not found"));
+      return dataOf(updated);
+    }, {
+      body: cancelOrderSchema,
+      detail: { summary: "Cancel an order", tags: ["Food"] },
+    })
+
+    /** 删除订单 */
+    .delete("/orders/:id", async ({ params, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const current = await foodService.getOrder(params.id);
+      if (!current) return status(404, errorOf("NOT_FOUND", "Order not found"));
+
+      if (String(current.userId) !== String(user.sub)) {
+        return status(403, errorOf("FORBIDDEN", "Cannot delete this order"));
+      }
+
+      const deleted = await foodService.deleteOrder(params.id);
+      return dataOf(deleted);
+    }, {
+      detail: { summary: "Delete an order", tags: ["Food"] },
+    })
+
+    // ═══════════════════════ 地址 ═══════════════════════
+
+    /** 获取当前用户地址列表 */
+    .get("/addresses", async ({ user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const userId = typeof user.sub === "string" ? user.sub : undefined;
+      if (!userId) return status(401, errorOf("UNAUTHORIZED", "Invalid token payload"));
+
+      const addresses = await foodService.getUserAddresses(userId);
+      return dataOf(addresses);
+    }, {
+      detail: { summary: "Get user addresses", tags: ["Food"] },
+    })
+
+    /** 新增地址 */
+    .post("/addresses", async ({ body, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const userId = typeof user.sub === "string" ? user.sub : undefined;
+      if (!userId) return status(401, errorOf("UNAUTHORIZED", "Invalid token payload"));
+
+      const address = await foodService.createUserAddress(userId, body);
+      return dataOf(address);
+    }, {
+      body: createAddressSchema,
+      detail: { summary: "Create a new address", tags: ["Food"] },
+    })
+
+    /** 更新地址 */
+    .put("/addresses/:id", async ({ params, body, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const userId = typeof user.sub === "string" ? user.sub : undefined;
+      if (!userId) return status(401, errorOf("UNAUTHORIZED", "Invalid token payload"));
+
+      const updated = await foodService.updateUserAddress(params.id, userId, body);
+      if (!updated) return status(404, errorOf("NOT_FOUND", "Address not found"));
+      return dataOf(updated);
+    }, {
+      body: updateAddressSchema,
+      detail: { summary: "Update an address", tags: ["Food"] },
+    })
+
+    /** 删除地址 */
+    .delete("/addresses/:id", async ({ params, user, status }) => {
+      if (!user) return status(401, errorOf("UNAUTHORIZED", "Unauthorized"));
+
+      const userId = typeof user.sub === "string" ? user.sub : undefined;
+      if (!userId) return status(401, errorOf("UNAUTHORIZED", "Invalid token payload"));
+
+      const deleted = await foodService.deleteUserAddress(params.id, userId);
+      if (!deleted) return status(404, errorOf("NOT_FOUND", "Address not found"));
+      return dataOf(deleted);
+    }, {
+      detail: { summary: "Delete an address", tags: ["Food"] },
     });
-    return { success: true, data: order };
-  }, {
-    body: t.Object({
-      items: t.Array(OrderItemSchema, { minItems: 1 }),
-      address: t.Optional(t.String()),
-      phone: t.Optional(t.String()),
-      contactName: t.Optional(t.String()),
-      note: t.Optional(t.String()),
-      deliveryType: t.Optional(t.String()),
-    }),
-    detail: { summary: 'Create a new order' },
-  })
-
-  .get('/orders', async ({ query, headers }) => {
-    const user = await verifyToken(headers);
-    if (!user) return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
-
-    const page = query.page ? parseInt(query.page) : 1;
-    const pageSize = query.pageSize ? parseInt(query.pageSize) : 20;
-    const status = query.status;
-
-    return getOrders(user.id, { page, pageSize }, status);
-  }, {
-    query: t.Object({
-      page: t.Optional(t.String()),
-      pageSize: t.Optional(t.String()),
-      status: t.Optional(t.String()),
-    }),
-    detail: { summary: 'Get user orders with pagination' },
-  })
-
-  .get('/orders/:id', async ({ params, headers }) => {
-    const user = await verifyToken(headers);
-    if (!user) return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
-
-    const result = await getOrderWithHistory(params.id);
-    if (!result) {
-      return { success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } };
-    }
-    if (result.order.userId !== user.id) {
-      return { success: false, error: { code: 'FORBIDDEN', message: 'Cannot access this order' } };
-    }
-
-    return { success: true, data: result };
-  }, {
-    params: t.Object({ id: t.String() }),
-    detail: { summary: 'Get order detail with status history' },
-  })
-
-  .put('/orders/:id/status', async ({ params, body, headers }) => {
-    const user = await verifyToken(headers);
-    if (!user) return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
-
-    const result = await getOrderWithHistory(params.id);
-    if (!result) {
-      return { success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } };
-    }
-    if (result.order.userId !== user.id) {
-      return { success: false, error: { code: 'FORBIDDEN', message: 'Cannot modify this order' } };
-    }
-
-    const updated = await updateOrderStatus(params.id, body.status, body.message);
-    return { success: true, data: updated };
-  }, {
-    params: t.Object({ id: t.String() }),
-    body: t.Object({
-      status: t.String(),
-      message: t.Optional(t.String()),
-    }),
-    detail: { summary: 'Update order status with history' },
-  })
-
-  .post('/orders/:id/cancel', async ({ params, body, headers }) => {
-    const user = await verifyToken(headers);
-    if (!user) return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
-
-    const result = await getOrderWithHistory(params.id);
-    if (!result) {
-      return { success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } };
-    }
-    if (result.order.userId !== user.id) {
-      return { success: false, error: { code: 'FORBIDDEN', message: 'Cannot cancel this order' } };
-    }
-    if (result.order.status === 'cancelled') {
-      return { success: false, error: { code: 'VALIDATION_ERROR', message: 'Order already cancelled' } };
-    }
-    if (['delivered', 'delivering'].includes(result.order.status)) {
-      return { success: false, error: { code: 'VALIDATION_ERROR', message: 'Cannot cancel order at this stage' } };
-    }
-
-    const updated = await cancelOrder(params.id, body?.reason);
-    return { success: true, data: updated };
-  }, {
-    params: t.Object({ id: t.String() }),
-    body: t.Optional(t.Object({
-      reason: t.Optional(t.String()),
-    })),
-    detail: { summary: 'Cancel an order' },
-  })
-
-  .delete('/orders/:id', async ({ params, headers }) => {
-    const user = await verifyToken(headers);
-    if (!user) return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
-
-    const result = await getOrderWithHistory(params.id);
-    if (!result) {
-      return { success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } };
-    }
-    if (result.order.userId !== user.id) {
-      return { success: false, error: { code: 'FORBIDDEN', message: 'Cannot delete this order' } };
-    }
-
-    const deleted = await deleteOrder(params.id);
-    return { success: true, data: deleted };
-  }, {
-    params: t.Object({ id: t.String() }),
-    detail: { summary: 'Delete an order' },
-  })
-
-  // ─── 地址管理 ───
-  .get('/addresses', async ({ headers }) => {
-    const user = await verifyToken(headers);
-    if (!user) return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
-
-    const addresses = await getUserAddresses(user.id);
-    return { success: true, data: addresses };
-  }, {
-    detail: { summary: 'Get user addresses' },
-  })
-
-  .post('/addresses', async ({ body, headers }) => {
-    const user = await verifyToken(headers);
-    if (!user) return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
-
-    const address = await createUserAddress(user.id, body);
-    return { success: true, data: address };
-  }, {
-    body: t.Object({
-      label: t.Optional(t.String()),
-      address: t.String(),
-      phone: t.Optional(t.String()),
-      contactName: t.Optional(t.String()),
-      isDefault: t.Optional(t.Boolean()),
-    }),
-    detail: { summary: 'Create a new address' },
-  })
-
-  .put('/addresses/:id', async ({ params, body, headers }) => {
-    const user = await verifyToken(headers);
-    if (!user) return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
-
-    const updated = await updateUserAddress(params.id, user.id, body);
-    if (!updated) {
-      return { success: false, error: { code: 'NOT_FOUND', message: 'Address not found' } };
-    }
-    return { success: true, data: updated };
-  }, {
-    params: t.Object({ id: t.String() }),
-    body: t.Object({
-      label: t.Optional(t.String()),
-      address: t.Optional(t.String()),
-      phone: t.Optional(t.String()),
-      contactName: t.Optional(t.String()),
-      isDefault: t.Optional(t.Boolean()),
-    }),
-    detail: { summary: 'Update an address' },
-  })
-
-  .delete('/addresses/:id', async ({ params, headers }) => {
-    const user = await verifyToken(headers);
-    if (!user) return { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } };
-
-    const deleted = await deleteUserAddress(params.id, user.id);
-    if (!deleted) {
-      return { success: false, error: { code: 'NOT_FOUND', message: 'Address not found' } };
-    }
-    return { success: true, data: deleted };
-  }, {
-    params: t.Object({ id: t.String() }),
-    detail: { summary: 'Delete an address' },
-  });
